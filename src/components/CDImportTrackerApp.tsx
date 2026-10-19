@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { SignInButton, UserButton, useUser } from '@clerk/nextjs';
 import {
   CDItem,
   Shipment,
@@ -15,7 +16,7 @@ import {
   getItemUnitInternalShipping,
 } from '@/lib/calculations';
 import { fetchBestAlbumCover } from '@/lib/coverArt';
-import { INITIAL_CD_ITEMS, INITIAL_SHIPMENTS } from '@/lib/seedData';
+import { INITIAL_SHIPMENTS } from '@/lib/seedData';
 import {
   AbsorbedForwarderItemsPayload,
   ForwarderPackageOption,
@@ -51,12 +52,14 @@ import {
   ArrowLeft,
   ChevronRight,
   RotateCcw,
+  LogIn,
 } from 'lucide-react';
 
 const STORAGE_KEY_SHIPMENTS = 'cd_import_tracker_shipments_v1';
 const STORAGE_KEY_CDS = 'cd_import_tracker_cds_v1';
 const STORAGE_KEY_CONSOLIDATED_MIGRATION =
   'cd_import_tracker_consolidated_mig_v3';
+const STORAGE_KEY_LEGACY_OWNER = 'cd_import_tracker_legacy_owner_v1';
 
 function normalizeConsolidatedState(
   shipmentsList: Shipment[],
@@ -106,6 +109,9 @@ function normalizeConsolidatedState(
 }
 
 export default function CDImportTrackerApp() {
+  const { isLoaded: isAuthLoaded, isSignedIn, user } = useUser();
+  const currentUserId = user?.id || null;
+
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [cdItems, setCdItems] = useState<CDItem[]>([]);
   const [selectedShipmentId, setSelectedShipmentId] = useState<string>('');
@@ -157,20 +163,47 @@ export default function CDImportTrackerApp() {
     return list.every((s) => seedIds.has(s.id));
   };
 
-  // Carrega dados sincronizando LocalStorage com o servidor (/api/tracker) para compartilhar entre Desktop e Mobile
+  // Carrega dados sincronizando LocalStorage (isolado por userId) com o servidor (/api/tracker)
   useEffect(() => {
+    if (!isAuthLoaded) return;
+    if (!isSignedIn || !currentUserId) {
+      setShipments([]);
+      setCdItems([]);
+      setSelectedShipmentId('');
+      setIsHydrated(false);
+      return;
+    }
+
     let cancelled = false;
+    setIsHydrated(false);
+
+    const userShipmentsKey = `${STORAGE_KEY_SHIPMENTS}_${currentUserId}`;
+    const userCdsKey = `${STORAGE_KEY_CDS}_${currentUserId}`;
+    const userMigrationKey = `${STORAGE_KEY_CONSOLIDATED_MIGRATION}_${currentUserId}`;
 
     const initData = async () => {
       let localShipments: Shipment[] | null = null;
       let localCDs: CDItem[] | null = null;
       const alreadyMigrated =
         typeof window !== 'undefined' &&
-        localStorage.getItem(STORAGE_KEY_CONSOLIDATED_MIGRATION) === '1';
+        localStorage.getItem(userMigrationKey) === '1';
 
       try {
-        const savedShipments = localStorage.getItem(STORAGE_KEY_SHIPMENTS);
-        const savedCDs = localStorage.getItem(STORAGE_KEY_CDS);
+        let savedShipments = localStorage.getItem(userShipmentsKey);
+        let savedCDs = localStorage.getItem(userCdsKey);
+
+        // Se ainda não há cache local para este userId, verifica se o cache legado pertence ao primeiro usuário
+        if (!savedShipments || !savedCDs) {
+          const legacyOwner = localStorage.getItem(STORAGE_KEY_LEGACY_OWNER);
+          const legacyShipments = localStorage.getItem(STORAGE_KEY_SHIPMENTS);
+          const legacyCDs = localStorage.getItem(STORAGE_KEY_CDS);
+          if (!legacyOwner && legacyShipments && legacyCDs) {
+            localStorage.setItem(STORAGE_KEY_LEGACY_OWNER, currentUserId);
+            savedShipments = legacyShipments;
+            savedCDs = legacyCDs;
+          }
+        }
+
         if (savedShipments && savedCDs) {
           const parsedShipments: Shipment[] = JSON.parse(savedShipments);
           const parsedCDs: CDItem[] = JSON.parse(savedCDs).filter(
@@ -184,7 +217,7 @@ export default function CDImportTrackerApp() {
           localShipments = normalized.shipments;
           localCDs = normalized.cdItems;
           if (!alreadyMigrated) {
-            localStorage.setItem(STORAGE_KEY_CONSOLIDATED_MIGRATION, '1');
+            localStorage.setItem(userMigrationKey, '1');
           }
         }
       } catch {
@@ -194,9 +227,10 @@ export default function CDImportTrackerApp() {
       const localHasRealData =
         localShipments &&
         localCDs &&
+        localShipments.length > 0 &&
         !isOnlyDefaultSeed(localShipments);
 
-      // Mostra imediatamente os dados locais se existirem
+      // Mostra imediatamente os dados locais deste usuário se existirem
       if (localShipments && localCDs && !cancelled) {
         setShipments(localShipments);
         setCdItems(localCDs);
@@ -214,7 +248,6 @@ export default function CDImportTrackerApp() {
             !isOnlyDefaultSeed(serverData.shipments);
 
           if (localHasRealData && !serverHasRealData) {
-            // O Desktop tem os dados reais do usuário e o servidor ainda não tem: envia do Desktop para o servidor!
             await fetch('/api/tracker', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -229,13 +262,17 @@ export default function CDImportTrackerApp() {
               serverData.cdItems,
               !alreadyMigrated
             );
-            // Se o Desktop tinha mais pacotes ou dados locais migrados, sincroniza
             const chosenShipments =
-              localShipments && localShipments.length > normalizedServer.shipments.length
+              localHasRealData &&
+              localShipments &&
+              localShipments.length > normalizedServer.shipments.length
                 ? localShipments
                 : normalizedServer.shipments;
             const chosenCDs =
-              localCDs && localShipments && localShipments.length > normalizedServer.shipments.length
+              localHasRealData &&
+              localCDs &&
+              localShipments &&
+              localShipments.length > normalizedServer.shipments.length
                 ? localCDs
                 : normalizedServer.cdItems;
 
@@ -249,28 +286,28 @@ export default function CDImportTrackerApp() {
                   : chosenShipments[0]?.id || ''
               );
               localStorage.setItem(
-                STORAGE_KEY_SHIPMENTS,
+                userShipmentsKey,
                 JSON.stringify(chosenShipments)
               );
               localStorage.setItem(
-                STORAGE_KEY_CDS,
+                userCdsKey,
                 JSON.stringify(chosenCDs)
               );
-              localStorage.setItem(STORAGE_KEY_CONSOLIDATED_MIGRATION, '1');
+              localStorage.setItem(userMigrationKey, '1');
             }
           } else if (!localShipments || !localCDs) {
             if (!cancelled) {
-              setShipments(INITIAL_SHIPMENTS);
-              setCdItems(INITIAL_CD_ITEMS);
-              setSelectedShipmentId(INITIAL_SHIPMENTS[0]?.id || '');
+              setShipments([]);
+              setCdItems([]);
+              setSelectedShipmentId('');
             }
           }
         }
       } catch {
         if (!localShipments && !cancelled) {
-          setShipments(INITIAL_SHIPMENTS);
-          setCdItems(INITIAL_CD_ITEMS);
-          setSelectedShipmentId(INITIAL_SHIPMENTS[0]?.id || '');
+          setShipments([]);
+          setCdItems([]);
+          setSelectedShipmentId('');
         }
       } finally {
         if (!cancelled) {
@@ -283,27 +320,28 @@ export default function CDImportTrackerApp() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isAuthLoaded, isSignedIn, currentUserId]);
 
-  // Salva automaticamente no LocalStorage e no Servidor (/api/tracker) sempre que houver alteração
+  // Salva automaticamente no LocalStorage (do usuário) e no Servidor (/api/tracker) sempre que houver alteração
   useEffect(() => {
-    if (!isHydrated) return;
-    localStorage.setItem(STORAGE_KEY_SHIPMENTS, JSON.stringify(shipments));
-    localStorage.setItem(STORAGE_KEY_CDS, JSON.stringify(cdItems));
+    if (!isHydrated || !isSignedIn || !currentUserId) return;
+    const userShipmentsKey = `${STORAGE_KEY_SHIPMENTS}_${currentUserId}`;
+    const userCdsKey = `${STORAGE_KEY_CDS}_${currentUserId}`;
+
+    localStorage.setItem(userShipmentsKey, JSON.stringify(shipments));
+    localStorage.setItem(userCdsKey, JSON.stringify(cdItems));
 
     if (isSyncingFromServerRef.current) {
       isSyncingFromServerRef.current = false;
       return;
     }
 
-    if (!isOnlyDefaultSeed(shipments)) {
-      fetch('/api/tracker', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shipments, cdItems }),
-      }).catch(() => {});
-    }
-  }, [shipments, cdItems, isHydrated]);
+    fetch('/api/tracker', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shipments, cdItems }),
+    }).catch(() => {});
+  }, [shipments, cdItems, isHydrated, isSignedIn, currentUserId]);
 
   // Busca automática de capas em background para uma lista de recém-criados
   const autoPopulateCoversForItems = async (itemsToFetch: CDItem[]) => {
@@ -1100,12 +1138,55 @@ export default function CDImportTrackerApp() {
     e.target.value = '';
   };
 
+  if (!isAuthLoaded) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center">
+        <div className="flex items-center gap-3 text-sm text-slate-400">
+          <Disc3 className="w-5 h-5 animate-spin text-indigo-400" />
+          Verificando sessão...
+        </div>
+      </div>
+    );
+  }
+
+  if (!isSignedIn) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-2xl bg-slate-900/90 border border-slate-800 p-6 sm:p-8 shadow-2xl space-y-6 text-center">
+          <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25 mx-auto">
+            <Disc3 className="w-8 h-8 text-white" />
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+              CD Import Tracker
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+              Faça login com sua conta Google para acessar e gerenciar seus pacotes, lotes e rateios de importação de forma individual.
+            </p>
+          </div>
+
+          <SignInButton mode="modal">
+            <button className="w-full inline-flex items-center justify-center gap-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-600/30 transition cursor-pointer">
+              <LogIn className="w-4 h-4" />
+              Entrar na minha conta
+            </button>
+          </SignInButton>
+
+          <p className="text-[11px] text-slate-500">
+            Cada usuário possui sua própria coleção e histórico de pacotes isolados.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!isHydrated) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center">
         <div className="flex items-center gap-3 text-sm text-slate-400">
           <Disc3 className="w-5 h-5 animate-spin text-indigo-400" />
-          Carregando CD Import Tracker...
+          Carregando suas importações...
         </div>
       </div>
     );
@@ -1197,6 +1278,13 @@ export default function CDImportTrackerApp() {
                   onChange={handleImportBackup}
                   className="hidden"
                 />
+
+                <div className="flex items-center gap-2 pl-1.5 sm:pl-2 border-l border-slate-800">
+                  <span className="hidden xl:inline text-xs text-slate-400 max-w-[140px] truncate">
+                    {user?.firstName || user?.primaryEmailAddress?.emailAddress}
+                  </span>
+                  <UserButton />
+                </div>
               </div>
             </div>
           </div>
