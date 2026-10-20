@@ -13,6 +13,7 @@ import {
   calculateShipmentSummary,
   formatBrl,
   formatOriginalCurrency,
+  generatePackageName,
   getItemUnitInternalShipping,
 } from '@/lib/calculations';
 import { fetchBestAlbumCover } from '@/lib/coverArt';
@@ -70,31 +71,45 @@ function normalizeConsolidatedState(
   const consolidatedIds = new Set<string>();
 
   const nextShipments = shipmentsList.map((s) => {
+    const itemsOfShipment = cdItemsList.filter((cd) => cd.shipmentId === s.id);
+    const autoName =
+      itemsOfShipment.length > 0
+        ? generatePackageName(itemsOfShipment, s.name)
+        : s.name;
+
+    let updatedShipment = s;
+    if (autoName !== s.name) {
+      changed = true;
+      updatedShipment = { ...updatedShipment, name: autoName };
+    }
+
     const hasConsolidationIndicators =
-      s.consolidationMode === 'group_only' ||
-      s.consolidationMode === 'unpack_and_repack' ||
+      updatedShipment.consolidationMode === 'group_only' ||
+      updatedShipment.consolidationMode === 'unpack_and_repack' ||
       (forceMigrate &&
-        (Number(s.forwarderFee) > 0 || Number(s.internationalShipping) > 0));
+        (Number(updatedShipment.forwarderFee) > 0 ||
+          Number(updatedShipment.internationalShipping) > 0));
 
     if (
-      (s.status === 'comprado' || s.status === 'no_redirecionador') &&
+      (updatedShipment.status === 'comprado' ||
+        updatedShipment.status === 'no_redirecionador') &&
       hasConsolidationIndicators
     ) {
       changed = true;
-      consolidatedIds.add(s.id);
-      return { ...s, status: 'consolidado' as ShipmentStatus };
+      consolidatedIds.add(updatedShipment.id);
+      return { ...updatedShipment, status: 'consolidado' as ShipmentStatus };
     }
 
     if (
-      s.status === 'consolidado' ||
-      s.status === 'em_transito' ||
-      s.status === 'tributado' ||
-      s.status === 'entregue'
+      updatedShipment.status === 'consolidado' ||
+      updatedShipment.status === 'em_transito' ||
+      updatedShipment.status === 'tributado' ||
+      updatedShipment.status === 'entregue'
     ) {
-      consolidatedIds.add(s.id);
+      consolidatedIds.add(updatedShipment.id);
     }
 
-    return s;
+    return updatedShipment;
   });
 
   const nextCdItems = cdItemsList.map((cd) => {
@@ -321,6 +336,25 @@ export default function CDImportTrackerApp() {
       cancelled = true;
     };
   }, [isAuthLoaded, isSignedIn, currentUserId]);
+
+  // Mantém o Nome Identificador de todos os pacotes 100% sincronizado automaticamente ([CD Individual] ou [Lote]) conforme os CDs mudam
+  useEffect(() => {
+    if (!isHydrated) return;
+    setShipments((prev) => {
+      let anyChanged = false;
+      const updated = prev.map((s) => {
+        const itemsForShip = cdItems.filter((cd) => cd.shipmentId === s.id);
+        if (itemsForShip.length === 0) return s;
+        const expectedName = generatePackageName(itemsForShip, s.name);
+        if (expectedName !== s.name) {
+          anyChanged = true;
+          return { ...s, name: expectedName };
+        }
+        return s;
+      });
+      return anyChanged ? updated : prev;
+    });
+  }, [cdItems, isHydrated]);
 
   // Salva automaticamente no LocalStorage (do usuário) e no Servidor (/api/tracker) sempre que houver alteração
   useEffect(() => {
@@ -840,13 +874,15 @@ export default function CDImportTrackerApp() {
   };
 
   const handleDuplicateShipment = (shipment: Shipment) => {
+    const now = new Date();
+    const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const newShipmentId = `ship-${Date.now()}`;
     const duplicatedShipment: Shipment = {
       ...shipment,
       id: newShipmentId,
       name: `${shipment.name} (Cópia)`,
       status: 'no_redirecionador',
-      shippingDate: '',
+      shippingDate: todayIso,
       internationalTrackingCode: '',
       createdAt: new Date().toISOString(),
     };
@@ -972,7 +1008,7 @@ export default function CDImportTrackerApp() {
     const newSingleShipmentId = `ship-${now}`;
     const newSingleShipment: Shipment = {
       id: newSingleShipmentId,
-      name: `${item.artist} - ${item.albumTitle}`,
+      name: generatePackageName([item]),
       shippingDate: parentShipment.shippingDate || '',
       status: 'comprado',
       currency: item.currency || parentShipment.currency,
@@ -1611,16 +1647,18 @@ export default function CDImportTrackerApp() {
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-slate-400">
                       <span className="inline-flex items-center gap-1">
                         <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                        Envio:{' '}
+                        Compra:{' '}
                         <strong className="text-slate-200">
                           {selectedSummary.shipment.shippingDate
                             ? new Date(
                                 selectedSummary.shipment.shippingDate +
                                   'T12:00:00'
                               ).toLocaleDateString('pt-BR')
-                            : selectedSummary.shipment.status === 'comprado'
-                            ? 'Ainda não enviado'
-                            : 'No redirecionador'}
+                            : selectedSummary.shipment.createdAt
+                            ? new Date(
+                                selectedSummary.shipment.createdAt
+                              ).toLocaleDateString('pt-BR')
+                            : 'Não informada'}
                         </strong>
                       </span>
 

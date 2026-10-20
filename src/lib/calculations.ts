@@ -291,3 +291,65 @@ export function formatOriginalCurrency(
     currency,
   }).format(Number.isFinite(value) ? value : 0);
 }
+
+/**
+ * Gera automaticamente o Nome Identificador do Pacote a partir dos CDs pertencentes a ele:
+ * - 1 CD: "[CD Individual] Artista - Álbum"
+ * - 2+ CDs: "[Lote] Artista 1 - Artista 2 - Artista 3" (artistas únicos na ordem em que aparecem)
+ */
+export function generatePackageName(
+  items: Array<{ artist?: string; albumTitle?: string }>,
+  fallbackName?: string
+): string {
+  const validItems = items.filter(
+    (i) => (i.artist || '').trim() !== '' || (i.albumTitle || '').trim() !== ''
+  );
+
+  if (validItems.length === 0) {
+    if (items.length > 1) {
+      return `[Lote] ${items.length} CDs`;
+    }
+    return fallbackName?.trim() || '[CD Individual] Novo CD';
+  }
+
+  if (items.length === 1 && validItems.length === 1) {
+    const artist = (validItems[0].artist || '').trim();
+    const album = (validItems[0].albumTitle || '').trim();
+    const isGenericAlbum =
+      !album || album === 'Álbum' || album.startsWith('CD #');
+
+    if (artist && !isGenericAlbum) {
+      return `[CD Individual] ${artist} - ${album}`;
+    }
+    if (artist) {
+      return `[CD Individual] ${artist}`;
+    }
+    if (album) {
+      return `[CD Individual] ${album}`;
+    }
+    return '[CD Individual] Novo CD';
+  }
+
+  // 2 ou mais CDs -> [Lote] Artista 1 - Artista 2 - Artista 3
+  const uniqueArtists: string[] = [];
+  const seenLower = new Set<string>();
+
+  for (const item of validItems) {
+    const artist = (item.artist || '').trim();
+    if (!artist || artist.startsWith('[Lote]') || artist.startsWith('[CD Individual]')) {
+      continue;
+    }
+    const key = artist.toLowerCase();
+    if (!seenLower.has(key)) {
+      seenLower.add(key);
+      uniqueArtists.push(artist);
+    }
+  }
+
+  if (uniqueArtists.length > 0) {
+    return `[Lote] ${uniqueArtists.join(' - ')}`;
+  }
+
+  return `[Lote] ${items.length} CDs`;
+}
+
