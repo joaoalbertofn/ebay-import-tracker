@@ -62,6 +62,25 @@ const STORAGE_KEY_CONSOLIDATED_MIGRATION =
   'cd_import_tracker_consolidated_mig_v3';
 const STORAGE_KEY_LEGACY_OWNER = 'cd_import_tracker_legacy_owner_v1';
 
+function formatShortBundleBadge(
+  item: CDItem,
+  currentShipmentName: string
+): string {
+  const qty = item.bundleTotalQuantity || 1;
+  const rawName = (item.bundleName || '').trim();
+  if (
+    !rawName ||
+    rawName === currentShipmentName ||
+    rawName.startsWith('[Lote]') ||
+    rawName.startsWith('[CD Individual]')
+  ) {
+    return `Lote (1/${qty})`;
+  }
+  const shortName =
+    rawName.length > 18 ? `${rawName.slice(0, 18).trim()}…` : rawName;
+  return `${shortName} (1/${qty})`;
+}
+
 function normalizeConsolidatedState(
   shipmentsList: Shipment[],
   cdItemsList: CDItem[],
@@ -2078,30 +2097,35 @@ export default function CDImportTrackerApp() {
 
                                     <div className="flex flex-wrap items-center gap-1.5 mt-2">
                                       {item.isBundle ? (
-                                        <span className="inline-flex items-center gap-1 rounded bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.5 text-[10px] text-purple-300">
-                                          <Layers className="w-2.5 h-2.5" />
-                                          {item.bundleName || 'Lote'} (1/
-                                          {item.bundleTotalQuantity || 1})
+                                        <span
+                                          className="inline-flex items-center gap-1 rounded bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.5 text-[10px] text-purple-300 whitespace-nowrap"
+                                          title={item.bundleName || 'Lote'}
+                                        >
+                                          <Layers className="w-2.5 h-2.5 shrink-0" />
+                                          {formatShortBundleBadge(
+                                            item,
+                                            selectedSummary.shipment.name
+                                          )}
                                         </span>
                                       ) : (
-                                        <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                                        <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400 whitespace-nowrap">
                                           Avulso
                                         </span>
                                       )}
 
                                       {item.packingHandling === 'unpacked' && (
-                                        <span className="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[10px] text-amber-300">
+                                        <span className="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[10px] text-amber-300 whitespace-nowrap">
                                           Fora da caixa
                                         </span>
                                       )}
                                       {item.packingHandling ===
                                         'original_box' && (
-                                        <span className="rounded bg-indigo-500/15 border border-indigo-500/30 px-1.5 py-0.5 text-[10px] text-indigo-300">
+                                        <span className="rounded bg-indigo-500/15 border border-indigo-500/30 px-1.5 py-0.5 text-[10px] text-indigo-300 whitespace-nowrap">
                                           Caixa original
                                         </span>
                                       )}
                                       {item.discCount > 1 && (
-                                        <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-mono text-indigo-300">
+                                        <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-mono text-indigo-300 whitespace-nowrap">
                                           Box {item.discCount} CDs
                                         </span>
                                       )}
@@ -2171,7 +2195,7 @@ export default function CDImportTrackerApp() {
                     <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-800">
                       <table className="w-full text-left border-collapse">
                         <thead>
-                          <tr className="border-b border-slate-800 bg-slate-950/90 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                          <tr className="border-b border-slate-800 bg-slate-950/90 text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap">
                             <th className="py-3 px-4">Capa, Artista & Álbum</th>
                             <th className="py-3 px-3">Origem / Embalagem</th>
                             <th className="py-3 px-3 text-right">
@@ -2181,7 +2205,7 @@ export default function CDImportTrackerApp() {
                               CD Convertido
                             </th>
                             <th className="py-3 px-3 text-right">
-                              + Rateio Unitário
+                              + Rateio Unit.
                             </th>
                             <th className="py-3 px-4 text-right">
                               Custo Final (BRL)
@@ -2216,8 +2240,8 @@ export default function CDImportTrackerApp() {
                                 }`}
                               >
                                 {/* Capa + Artista & Álbum */}
-                                <td className="py-3 px-4">
-                                  <div className="flex items-center gap-3.5">
+                                <td className="py-3 px-4 min-w-[220px]">
+                                  <div className="flex items-center gap-3">
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -2225,7 +2249,7 @@ export default function CDImportTrackerApp() {
                                         setIsCDModalOpen(true);
                                       }}
                                       title="Clique para trocar ou buscar a capa deste álbum"
-                                      className="group relative h-12 w-12 rounded-lg bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0 shadow hover:border-indigo-400 transition"
+                                      className="group relative h-11 w-11 rounded-lg bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0 shadow hover:border-indigo-400 transition"
                                     >
                                       {item.coverUrl ? (
                                         // eslint-disable-next-line @next/next/no-img-element
@@ -2235,7 +2259,7 @@ export default function CDImportTrackerApp() {
                                           className="h-full w-full object-cover"
                                         />
                                       ) : (
-                                        <Disc3 className="w-6 h-6 text-slate-600 group-hover:text-indigo-400 transition" />
+                                        <Disc3 className="w-5 h-5 text-slate-600 group-hover:text-indigo-400 transition" />
                                       )}
                                     </button>
 
@@ -2274,7 +2298,7 @@ export default function CDImportTrackerApp() {
                                               onClick={() =>
                                                 handleSaveInlineEdit(item)
                                               }
-                                              className="rounded bg-indigo-600 hover:bg-indigo-500 px-2.5 py-1 text-[11px] font-semibold text-white shrink-0"
+                                              className="rounded bg-indigo-600 hover:bg-indigo-500 px-2.5 py-1 text-[11px] font-semibold text-white shrink-0 whitespace-nowrap"
                                             >
                                               Salvar + Capa
                                             </button>
@@ -2282,10 +2306,10 @@ export default function CDImportTrackerApp() {
                                         </div>
                                       ) : (
                                         <div>
-                                          <div className="font-semibold text-white flex items-center gap-2">
+                                          <div className="font-semibold text-white leading-snug">
                                             <span>{item.artist}</span>
                                             {item.releaseYear && (
-                                              <span className="text-[10px] font-mono text-slate-400 font-normal">
+                                              <span className="ml-1.5 text-[10px] font-mono text-slate-400 font-normal whitespace-nowrap">
                                                 ({item.releaseYear})
                                               </span>
                                             )}
@@ -2303,22 +2327,22 @@ export default function CDImportTrackerApp() {
                                               );
                                             }}
                                             title="Clique para renomear o álbum e buscar a capa"
-                                            className="text-xs text-slate-300 hover:text-indigo-300 cursor-pointer flex flex-wrap items-center gap-1.5 mt-0.5 group/title"
+                                            className="text-xs text-slate-300 hover:text-indigo-300 cursor-pointer flex items-center gap-1.5 mt-0.5 group/title"
                                           >
                                             <span
-                                              className={
+                                              className={`truncate ${
                                                 item.albumTitle.startsWith(
                                                   'CD #'
                                                 )
                                                   ? 'underline decoration-dashed decoration-indigo-400/60 text-indigo-200'
                                                   : ''
-                                              }
+                                              }`}
                                             >
                                               {item.albumTitle}
                                             </span>
-                                            <Edit3 className="w-3 h-3 opacity-0 group-hover/title:opacity-100 text-indigo-400 transition" />
+                                            <Edit3 className="w-3 h-3 opacity-0 group-hover/title:opacity-100 text-indigo-400 transition shrink-0" />
                                             {item.discCount > 1 && (
-                                              <span className="rounded bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 text-[10px] font-mono text-indigo-300">
+                                              <span className="rounded bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 text-[10px] font-mono text-indigo-300 whitespace-nowrap shrink-0">
                                                 Box {item.discCount} CDs
                                               </span>
                                             )}
@@ -2330,40 +2354,46 @@ export default function CDImportTrackerApp() {
                                 </td>
 
                                 {/* Bundle / Embalagem / Rastreio Local */}
-                                <td className="py-3.5 px-3">
+                                <td className="py-3 px-3 whitespace-nowrap">
                                   <div className="flex flex-wrap items-center gap-1.5">
                                     {item.isBundle ? (
                                       <span
-                                        className="inline-flex items-center gap-1 rounded-md bg-purple-500/15 border border-purple-500/30 px-2 py-0.5 text-[11px] font-medium text-purple-300"
+                                        className="inline-flex items-center gap-1 rounded-md bg-purple-500/15 border border-purple-500/30 px-2 py-0.5 text-[11px] font-medium text-purple-300 whitespace-nowrap"
                                         title={`Lote: ${formatOriginalCurrency(
                                           item.bundleTotalValue || 0,
                                           selectedSummary.shipment.currency
-                                        )} ÷ ${item.bundleTotalQuantity || 1}`}
+                                        )} ÷ ${item.bundleTotalQuantity || 1}${
+                                          item.bundleName
+                                            ? ` — ${item.bundleName}`
+                                            : ''
+                                        }`}
                                       >
-                                        <Layers className="w-3 h-3" />
-                                        {item.bundleName || 'Bundle'} (1/
-                                        {item.bundleTotalQuantity || 1})
+                                        <Layers className="w-3 h-3 shrink-0" />
+                                        {formatShortBundleBadge(
+                                          item,
+                                          selectedSummary.shipment.name
+                                        )}
                                       </span>
                                     ) : (
-                                      <span className="inline-flex items-center rounded-md bg-slate-800/80 px-2 py-0.5 text-[11px] text-slate-400">
-                                        Compra Avulsa
+                                      <span className="inline-flex items-center rounded-md bg-slate-800/80 px-2 py-0.5 text-[11px] text-slate-400 whitespace-nowrap">
+                                        Avulso
                                       </span>
                                     )}
 
                                     {item.packingHandling === 'unpacked' && (
-                                      <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[10px] text-amber-300">
+                                      <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[10px] text-amber-300 whitespace-nowrap">
                                         Fora da caixa
                                       </span>
                                     )}
                                     {item.packingHandling ===
                                       'original_box' && (
-                                      <span className="inline-flex items-center gap-1 rounded bg-indigo-500/15 border border-indigo-500/30 px-1.5 py-0.5 text-[10px] text-indigo-300">
+                                      <span className="inline-flex items-center gap-1 rounded bg-indigo-500/15 border border-indigo-500/30 px-1.5 py-0.5 text-[10px] text-indigo-300 whitespace-nowrap">
                                         Caixa original
                                       </span>
                                     )}
 
                                     {item.localTrackingCode && (
-                                      <span className="font-mono text-[10px] text-sky-300 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">
+                                      <span className="font-mono text-[10px] text-sky-300 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 whitespace-nowrap">
                                         🚚 {item.localTrackingCode}
                                       </span>
                                     )}
@@ -2371,13 +2401,15 @@ export default function CDImportTrackerApp() {
                                 </td>
 
                                 {/* Valor Unitário Original */}
-                                <td className="py-3.5 px-3 text-right font-mono text-xs text-slate-200">
-                                  {formatOriginalCurrency(
-                                    item.unitOriginalValue,
-                                    selectedSummary.shipment.currency
-                                  )}
+                                <td className="py-3 px-3 text-right font-mono text-xs text-slate-200 whitespace-nowrap">
+                                  <div>
+                                    {formatOriginalCurrency(
+                                      item.unitOriginalValue,
+                                      selectedSummary.shipment.currency
+                                    )}
+                                  </div>
                                   {item.isBundle && item.bundleTotalValue && (
-                                    <div className="text-[10px] text-slate-500">
+                                    <div className="text-[10px] text-slate-500 whitespace-nowrap">
                                       (
                                       {formatOriginalCurrency(
                                         item.bundleTotalValue,
@@ -2389,41 +2421,41 @@ export default function CDImportTrackerApp() {
                                 </td>
 
                                 {/* Custo Direto em BRL */}
-                                <td className="py-3.5 px-3 text-right font-mono text-xs text-slate-300">
+                                <td className="py-3 px-3 text-right font-mono text-xs text-slate-300 whitespace-nowrap">
                                   {formatBrl(item.directCostBrl)}
                                 </td>
 
                                 {/* Rateio Unitário */}
-                                <td className="py-3.5 px-3 text-right font-mono text-xs text-indigo-300">
+                                <td className="py-3 px-3 text-right font-mono text-xs text-indigo-300 whitespace-nowrap">
                                   + {formatBrl(item.allocatedIndirectCostBrl)}
                                 </td>
 
                                 {/* Custo Final BRL */}
-                                <td className="py-3.5 px-4 text-right">
+                                <td className="py-3 px-4 text-right whitespace-nowrap">
                                   <div className="font-mono font-bold text-sm text-emerald-400">
                                     {formatBrl(item.finalCostBrl)}
                                   </div>
                                   {item.discCount > 1 && (
-                                    <div className="text-[10px] font-mono text-slate-400">
+                                    <div className="text-[10px] font-mono text-slate-400 whitespace-nowrap">
                                       ({formatBrl(item.costPerDiscBrl)} / disco)
                                     </div>
                                   )}
                                 </td>
 
                                 {/* Ações: Voltar p/ Pacote Único / Editar / Excluir */}
-                                <td className="py-3.5 px-3 text-center">
-                                  <div className="inline-flex items-center gap-1">
+                                <td className="py-3 px-3 text-center whitespace-nowrap">
+                                  <div className="inline-flex items-center gap-1 whitespace-nowrap">
                                     {canRevertCd && (
                                       <button
                                         type="button"
                                         onClick={() =>
                                           handleExtractCdToSinglePackage(item)
                                         }
-                                        title="Desfazer consolidação deste CD e voltar para Comprado (Pacote Único)"
-                                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-sky-300 hover:text-white hover:bg-slate-800 border border-slate-800 transition"
+                                        title="Desmembrar este CD em um Pacote Único separado"
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-sky-300 hover:text-white hover:bg-slate-800 border border-slate-800 transition whitespace-nowrap"
                                       >
-                                        <RotateCcw className="w-3.5 h-3.5" />
-                                        <span className="hidden xl:inline">
+                                        <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                                        <span className="hidden 2xl:inline">
                                           Pacote Único
                                         </span>
                                       </button>
