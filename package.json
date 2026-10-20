@@ -6,7 +6,10 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:status": "node scripts/db-sync.mjs status",
+    "db:pull": "node scripts/db-sync.mjs pull",
+    "db:push": "node scripts/db-sync.mjs push"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.17",

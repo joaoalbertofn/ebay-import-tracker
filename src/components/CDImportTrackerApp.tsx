@@ -58,6 +58,7 @@ import {
 
 const STORAGE_KEY_SHIPMENTS = 'cd_import_tracker_shipments_v1';
 const STORAGE_KEY_CDS = 'cd_import_tracker_cds_v1';
+const STORAGE_KEY_UPDATED_AT = 'cd_import_tracker_updated_at_v1';
 const STORAGE_KEY_CONSOLIDATED_MIGRATION =
   'cd_import_tracker_consolidated_mig_v3';
 const STORAGE_KEY_LEGACY_OWNER = 'cd_import_tracker_legacy_owner_v1';
@@ -213,11 +214,13 @@ export default function CDImportTrackerApp() {
 
     const userShipmentsKey = `${STORAGE_KEY_SHIPMENTS}_${currentUserId}`;
     const userCdsKey = `${STORAGE_KEY_CDS}_${currentUserId}`;
+    const userUpdatedAtKey = `${STORAGE_KEY_UPDATED_AT}_${currentUserId}`;
     const userMigrationKey = `${STORAGE_KEY_CONSOLIDATED_MIGRATION}_${currentUserId}`;
 
     const initData = async () => {
       let localShipments: Shipment[] | null = null;
       let localCDs: CDItem[] | null = null;
+      let localUpdatedAt: string | null = null;
       const alreadyMigrated =
         typeof window !== 'undefined' &&
         localStorage.getItem(userMigrationKey) === '1';
@@ -225,6 +228,7 @@ export default function CDImportTrackerApp() {
       try {
         let savedShipments = localStorage.getItem(userShipmentsKey);
         let savedCDs = localStorage.getItem(userCdsKey);
+        localUpdatedAt = localStorage.getItem(userUpdatedAtKey);
 
         // Se ainda não há cache local para este userId, verifica se o cache legado pertence ao primeiro usuário
         if (!savedShipments || !savedCDs) {
@@ -282,7 +286,7 @@ export default function CDImportTrackerApp() {
             !isOnlyDefaultSeed(serverData.shipments);
 
           if (localHasRealData && !serverHasRealData) {
-            await fetch('/api/tracker', {
+            const postRes = await fetch('/api/tracker', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -290,28 +294,42 @@ export default function CDImportTrackerApp() {
                 cdItems: localCDs,
               }),
             });
+            if (postRes.ok) {
+              const postData = await postRes.json();
+              if (postData?.updatedAt) {
+                localStorage.setItem(userUpdatedAtKey, postData.updatedAt);
+              }
+            }
           } else if (serverData.exists && (!localHasRealData || serverHasRealData)) {
             const normalizedServer = normalizeConsolidatedState(
               serverData.shipments,
               serverData.cdItems,
               !alreadyMigrated
             );
+            const serverTimestamp = serverData.updatedAt
+              ? new Date(serverData.updatedAt).getTime()
+              : 0;
+            const localTimestamp = localUpdatedAt
+              ? new Date(localUpdatedAt).getTime()
+              : 0;
+
+            // O banco em nuvem (servidor) é a fonte oficial da verdade sempre que tiver updatedAt mais recente ou igual
+            const preferLocal =
+              Boolean(localHasRealData && localShipments && localCDs) &&
+              localTimestamp > 0 &&
+              serverTimestamp > 0 &&
+              localTimestamp > serverTimestamp;
+
             const chosenShipments =
-              localHasRealData &&
-              localShipments &&
-              localShipments.length > normalizedServer.shipments.length
+              preferLocal && localShipments
                 ? localShipments
                 : normalizedServer.shipments;
             const chosenCDs =
-              localHasRealData &&
-              localCDs &&
-              localShipments &&
-              localShipments.length > normalizedServer.shipments.length
-                ? localCDs
-                : normalizedServer.cdItems;
+              preferLocal && localCDs ? localCDs : normalizedServer.cdItems;
 
             if (!cancelled) {
-              isSyncingFromServerRef.current = !normalizedServer.changed;
+              isSyncingFromServerRef.current =
+                !preferLocal && !normalizedServer.changed;
               setShipments(chosenShipments);
               setCdItems(chosenCDs);
               setSelectedShipmentId((prev) =>
@@ -327,6 +345,9 @@ export default function CDImportTrackerApp() {
                 userCdsKey,
                 JSON.stringify(chosenCDs)
               );
+              if (!preferLocal && serverData.updatedAt) {
+                localStorage.setItem(userUpdatedAtKey, serverData.updatedAt);
+              }
               localStorage.setItem(userMigrationKey, '1');
             }
           } else if (!localShipments || !localCDs) {
@@ -380,6 +401,7 @@ export default function CDImportTrackerApp() {
     if (!isHydrated || !isSignedIn || !currentUserId) return;
     const userShipmentsKey = `${STORAGE_KEY_SHIPMENTS}_${currentUserId}`;
     const userCdsKey = `${STORAGE_KEY_CDS}_${currentUserId}`;
+    const userUpdatedAtKey = `${STORAGE_KEY_UPDATED_AT}_${currentUserId}`;
 
     localStorage.setItem(userShipmentsKey, JSON.stringify(shipments));
     localStorage.setItem(userCdsKey, JSON.stringify(cdItems));
@@ -389,11 +411,21 @@ export default function CDImportTrackerApp() {
       return;
     }
 
+    const nowIso = new Date().toISOString();
+    localStorage.setItem(userUpdatedAtKey, nowIso);
+
     fetch('/api/tracker', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ shipments, cdItems }),
-    }).catch(() => {});
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.updatedAt) {
+          localStorage.setItem(userUpdatedAtKey, data.updatedAt);
+        }
+      })
+      .catch(() => {});
   }, [shipments, cdItems, isHydrated, isSignedIn, currentUserId]);
 
   // Busca automática de capas em background para uma lista de recém-criados

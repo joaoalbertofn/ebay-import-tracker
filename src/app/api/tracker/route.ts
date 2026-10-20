@@ -106,12 +106,23 @@ export async function GET() {
 
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed.shipments) && Array.isArray(parsed.cdItems)) {
+      // Espelha localmente em desenvolvimento para manter data/tracker-db.json e data/users/<id>.json atualizados
+      if (!process.env.VERCEL && KV_URL && KV_TOKEN) {
+        try {
+          await fs.mkdir(USERS_DIR, { recursive: true });
+          await fs.writeFile(userDbFile, raw, 'utf-8');
+          await fs.writeFile(LEGACY_DB_FILE, raw, 'utf-8');
+        } catch {
+          // ignora erro de escrita de espelhamento local
+        }
+      }
+
       return NextResponse.json({
         exists: true,
         userId,
         shipments: parsed.shipments,
         cdItems: parsed.cdItems,
-        updatedAt: parsed.updatedAt || null,
+        updatedAt: parsed.updatedAt || parsed.exportedAt || null,
       });
     }
     return NextResponse.json({ exists: false, userId });
@@ -146,10 +157,15 @@ export async function POST(request: Request) {
 
     if (KV_URL && KV_TOKEN) {
       await kvSet(`cd_tracker:user:${userId}`, serialized);
-    } else {
+    }
+
+    if (!process.env.VERCEL || !(KV_URL && KV_TOKEN)) {
       await fs.mkdir(USERS_DIR, { recursive: true });
       const userDbFile = getUserDbFile(userId);
       await fs.writeFile(userDbFile, serialized, 'utf-8');
+      if (!process.env.VERCEL) {
+        await fs.writeFile(LEGACY_DB_FILE, serialized, 'utf-8');
+      }
     }
 
     return NextResponse.json({ ok: true, updatedAt: payload.updatedAt });
