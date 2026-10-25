@@ -2632,7 +2632,9 @@ export default function CDImportTrackerApp() {
 
                         {selectedSummary.shipment.internationalTrackingCode && (
                           <a
-                            href="https://portalimportador.correios.com.br/pages/pesquisarRemessaImportador/pesquisarRemessaImportador.jsf"
+                            href={`https://portalimportador.correios.com.br/pages/pesquisarRemessaImportador/pesquisarRemessaImportador.jsf#track=${encodeURIComponent(
+                              selectedSummary.shipment.internationalTrackingCode.trim()
+                            )}`}
                             target="_blank"
                             rel="noreferrer"
                             onClick={() => {
@@ -2650,7 +2652,7 @@ export default function CDImportTrackerApp() {
                               }
                             }}
                             className="inline-flex items-center gap-1 rounded-md bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 font-mono text-[11px] text-sky-300 hover:bg-sky-500/25 transition"
-                            title="Copiar código e abrir Minhas Importações (Correios)"
+                            title="Abrir Minhas Importações (Correios) com o código de rastreio"
                           >
                             <Truck className="w-3 h-3" />
                             {selectedSummary.shipment.internationalTrackingCode}
