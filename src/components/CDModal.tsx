@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { CDItem, CurrencyCode, LOCKER_SHIPMENT_ID } from '@/types/tracker';
+import { CDItem, CurrencyCode } from '@/types/tracker';
 import {
   CURRENCY_META,
   formatBrl,
@@ -23,7 +23,6 @@ import {
   Sparkles,
   Loader2,
   Check,
-  Coins,
   RefreshCw,
 } from 'lucide-react';
 
@@ -33,10 +32,6 @@ interface CDModalProps {
   shipmentId: string;
   currency: CurrencyCode;
   exchangeRate: number;
-  liveRates?: Record<
-    CurrencyCode,
-    { rate: number; source: string; timestamp: string }
-  >;
   editingItem?: CDItem | null;
   existingBundles: {
     bundleId: string;
@@ -70,15 +65,10 @@ export function CDModal({
   shipmentId,
   currency: parentCurrency,
   exchangeRate: parentExchangeRate,
-  liveRates,
   editingItem,
   existingBundles,
   onSaveItems,
 }: CDModalProps) {
-  const isLockerTarget = shipmentId === LOCKER_SHIPMENT_ID;
-
-  const [selectedCurrency, setSelectedCurrency] =
-    useState<CurrencyCode>(parentCurrency);
   const [artist, setArtist] = useState('');
   const [albumTitle, setAlbumTitle] = useState('');
   const [discCount, setDiscCount] = useState<string>('1');
@@ -122,7 +112,6 @@ export function CDModal({
     setCoverSearchMessage('');
 
     if (editingItem) {
-      setSelectedCurrency(editingItem.currency || parentCurrency);
       setArtist(editingItem.artist);
       setAlbumTitle(editingItem.albumTitle);
       setDiscCount(String(editingItem.discCount || 1));
@@ -149,7 +138,6 @@ export function CDModal({
       setEnableBatchCreate(false);
       setSyncBundleSiblings(true);
     } else {
-      setSelectedCurrency(parentCurrency);
       setArtist('');
       setAlbumTitle('');
       setDiscCount('1');
@@ -169,21 +157,12 @@ export function CDModal({
         { artist: '', albumTitle: '', discCount: 1 },
       ]);
     }
-  }, [isOpen, editingItem, parentCurrency]);
+  }, [isOpen, editingItem]);
 
   if (!isOpen) return null;
 
-  const activeCurrency: CurrencyCode = isLockerTarget
-    ? selectedCurrency
-    : parentCurrency;
-  const activeExchangeRate = isLockerTarget
-    ? liveRates?.[selectedCurrency]?.rate ||
-      CURRENCY_META[selectedCurrency].defaultRate
-    : parentExchangeRate;
-  const rateSourceLabel = isLockerTarget
-    ? liveRates?.[selectedCurrency]?.source || 'Cotação Automática'
-    : 'Cotação Automática';
-
+  const activeCurrency: CurrencyCode = parentCurrency;
+  const activeExchangeRate = parentExchangeRate;
   const currSymbol = CURRENCY_META[activeCurrency].symbol;
 
   const parsedBundleTotal = parseFloat(bundleTotalValue) || 0;
@@ -478,13 +457,11 @@ export function CDModal({
               <h2 className="text-base sm:text-lg font-semibold text-white truncate">
                 {editingItem
                   ? 'Editar CD & Capa do Álbum'
-                  : isLockerTarget
-                  ? 'Registrar Compra no eBay'
                   : 'Adicionar CD ou Lote ao Pacote'}
               </h2>
               <p className="text-xs text-slate-400 truncate">
                 Câmbio do pacote: <strong>1 {activeCurrency}</strong> ≈ R${' '}
-                {activeExchangeRate.toFixed(2)} ({rateSourceLabel})
+                {activeExchangeRate.toFixed(2)} (Cotação Automática)
               </p>
             </div>
           </div>
@@ -500,34 +477,6 @@ export function CDModal({
 
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
           <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1">
-            {/* Seletor de Moeda quando estiver lançando no Cofre do Redirecionador */}
-            {isLockerTarget && (
-              <div className="rounded-xl bg-slate-800/50 border border-slate-700/80 p-3.5 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs text-slate-200 font-medium">
-                  <Coins className="w-4 h-4 text-amber-400" />
-                  <span>Moeda da Compra:</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <select
-                    value={selectedCurrency}
-                    onChange={(e) =>
-                      setSelectedCurrency(e.target.value as CurrencyCode)
-                    }
-                    className="rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-sm sm:text-xs text-white focus:border-purple-500 focus:outline-none"
-                  >
-                    {Object.entries(CURRENCY_META).map(([code, meta]) => (
-                      <option key={code} value={code}>
-                        {meta.symbol} - {meta.label}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="text-[11px] text-slate-400 font-mono">
-                    1 {activeCurrency} ≈ R$ {activeExchangeRate.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            )}
-
             {/* SELETOR EM ABAS (Segmented Control): CD Individual vs Lote / Bundle */}
             <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800">
               <button

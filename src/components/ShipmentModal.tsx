@@ -39,6 +39,10 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronUp,
+  Lock,
+  Unlock,
+  Scale,
+  RotateCcw,
 } from 'lucide-react';
 
 const STORAGE_KEY_FEES = 'cd_import_tracker_forwarder_fees_v1';
@@ -88,6 +92,7 @@ export interface InitialBundlePayload {
 
 export interface AbsorbedForwarderItemsPayload {
   selectedCdIds: string[];
+  discardedCdIds: string[];
   mode: Exclude<ConsolidationMode, 'direct'>; // 'group_only' | 'unpack_and_repack'
   inheritedInternalShipping: number;
 }
@@ -162,6 +167,7 @@ export function ShipmentModal({
   forwarderPackages = [],
 }: ShipmentModalProps) {
   const [name, setName] = useState('');
+  const [isCustomName, setIsCustomName] = useState(false);
   const [shippingDate, setShippingDate] = useState('');
   const [status, setStatus] = useState<ShipmentStatus>('comprado');
   const [currency, setCurrency] = useState<CurrencyCode>('GBP');
@@ -171,6 +177,7 @@ export function ShipmentModal({
   const [rateSourceInfo, setRateSourceInfo] = useState<string>(
     'Cotação Automática'
   );
+  const [weightKg, setWeightKg] = useState<string>('');
   const [internalShipping, setInternalShipping] = useState<string>('0');
   const [forwarderFee, setForwarderFee] = useState<string>('0');
   const [internationalShipping, setInternationalShipping] =
@@ -185,11 +192,14 @@ export function ShipmentModal({
   const [bundleTotalValue, setBundleTotalValue] = useState<string>('');
   const [localTrackingCode, setLocalTrackingCode] = useState<string>('');
   const [cdEntries, setCdEntries] = useState<InitialCDEntry[]>([
-    { artist: '', albumTitle: '', unitPrice: '' },
+    { artist: '', albumTitle: '', unitPrice: '', discCount: 1 },
   ]);
 
-  // Seleção de pacotes/CDs existentes que estão "No Redirecionador"
+  // Seleção de pacotes/CDs existentes que estão disponíveis para consolidação + descarte
   const [selectedExistingCdIds, setSelectedExistingCdIds] = useState<
+    Set<string>
+  >(new Set());
+  const [discardedExistingCdIds, setDiscardedExistingCdIds] = useState<
     Set<string>
   >(new Set());
   const [consolidationAction, setConsolidationAction] = useState<
@@ -201,7 +211,7 @@ export function ShipmentModal({
   const [isForwarderExpandedManual, setIsForwarderExpandedManual] =
     useState<boolean>(false);
 
-  // Filtra apenas pacotes com status 'no_redirecionador' que não sejam o próprio pacote em edição e que tenham CDs
+  // Filtra apenas pacotes disponíveis que não sejam o próprio pacote em edição e que tenham CDs
   const eligibleForwarderPackages = useMemo(() => {
     return forwarderPackages.filter(
       (fp) =>
@@ -229,21 +239,39 @@ export function ShipmentModal({
     return { savedGroup, savedUnpack };
   };
 
+  const handleFetchLiveRate = async (targetCurrency: CurrencyCode) => {
+    try {
+      const result = await fetchLiveExchangeRate(targetCurrency);
+      setExchangeRate(result.rate);
+      setRateSourceInfo(`${result.source} às ${result.timestamp}`);
+    } catch {
+      setExchangeRate(CURRENCY_META[targetCurrency].defaultRate);
+      setRateSourceInfo('Cotação Automática de Referência');
+    }
+  };
+
   useEffect(() => {
     if (!isOpen) return;
 
     setSelectedExistingCdIds(new Set());
+    setDiscardedExistingCdIds(new Set());
     setConsolidationAction('unpack_and_repack');
     setIsForwarderExpandedManual(false);
 
     if (editingShipment) {
       setName(editingShipment.name);
+      setIsCustomName(Boolean(editingShipment.isCustomName));
       setShippingDate(editingShipment.shippingDate || getTodayLocalIsoDate());
       setStatus(editingShipment.status);
       setCurrency(editingShipment.currency);
       setExchangeRate(editingShipment.exchangeRate);
       setRateSourceInfo(
         editingShipment.exchangeRateSource || 'Cotação Automática'
+      );
+      setWeightKg(
+        editingShipment.weightKg && editingShipment.weightKg > 0
+          ? String(editingShipment.weightKg)
+          : ''
       );
       setInternalShipping(String(editingShipment.internalShipping));
       setForwarderFee(String(editingShipment.forwarderFee));
@@ -284,16 +312,20 @@ export function ShipmentModal({
       } else {
         setBundleTotalValue('');
         setLocalTrackingCode('');
-        setCdEntries([{ artist: '', albumTitle: '', unitPrice: '' }]);
+        setCdEntries([
+          { artist: '', albumTitle: '', unitPrice: '', discCount: 1 },
+        ]);
       }
       loadFeePresetsForCurrency(editingShipment.currency);
     } else {
       setName('');
+      setIsCustomName(false);
       setShippingDate(getTodayLocalIsoDate());
       setStatus('comprado');
       setCurrency('GBP');
       setExchangeRate(CURRENCY_META.GBP.defaultRate);
       setRateSourceInfo('Cotação Automática');
+      setWeightKg('');
       setInternalShipping('0');
       setForwarderFee('0');
       setInternationalShipping('0');
@@ -303,22 +335,13 @@ export function ShipmentModal({
       setNotes('');
       setBundleTotalValue('');
       setLocalTrackingCode('');
-      setCdEntries([{ artist: '', albumTitle: '', unitPrice: '' }]);
+      setCdEntries([
+        { artist: '', albumTitle: '', unitPrice: '', discCount: 1 },
+      ]);
       loadFeePresetsForCurrency('GBP');
       handleFetchLiveRate('GBP');
     }
   }, [isOpen, editingShipment, editingShipmentItems]);
-
-  const handleFetchLiveRate = async (targetCurrency: CurrencyCode) => {
-    try {
-      const result = await fetchLiveExchangeRate(targetCurrency);
-      setExchangeRate(result.rate);
-      setRateSourceInfo(`${result.source} às ${result.timestamp}`);
-    } catch {
-      setExchangeRate(CURRENCY_META[targetCurrency].defaultRate);
-      setRateSourceInfo('Cotação Automática de Referência');
-    }
-  };
 
   const handleCurrencyChange = (newCurr: CurrencyCode) => {
     setCurrency(newCurr);
@@ -434,7 +457,7 @@ export function ShipmentModal({
 
   const handleUpdateCdEntry = (
     index: number,
-    field: 'artist' | 'albumTitle' | 'unitPrice',
+    field: 'artist' | 'albumTitle' | 'unitPrice' | 'discCount',
     value: string
   ) => {
     setCdEntries((prev) => {
@@ -445,7 +468,10 @@ export function ShipmentModal({
           : {};
       copy[index] = {
         ...copy[index],
-        [field]: value,
+        [field]:
+          field === 'discCount'
+            ? Math.max(1, parseInt(value, 10) || 1)
+            : value,
         ...resetCandidates,
       };
 
@@ -475,6 +501,7 @@ export function ShipmentModal({
           artist: lastArtist,
           albumTitle: '',
           unitPrice: '',
+          discCount: 1,
         },
       ];
     });
@@ -484,7 +511,7 @@ export function ShipmentModal({
     setCdEntries((prev) => {
       const next =
         prev.length <= 1
-          ? [{ artist: '', albumTitle: '', unitPrice: '' }]
+          ? [{ artist: '', albumTitle: '', unitPrice: '', discCount: 1 }]
           : prev.filter((_, idx) => idx !== index);
 
       const hasAnyUnitPrice = next.some(
@@ -512,6 +539,7 @@ export function ShipmentModal({
             artist: defaultArtist,
             albumTitle: '',
             unitPrice: '',
+            discCount: 1,
           }
         );
       }
@@ -519,25 +547,48 @@ export function ShipmentModal({
     });
   };
 
-  // Calcula o Frete Interno Local herdado proporcionalmente dos pacotes que estão "No Redirecionador"
+  const parsedRate = Math.max(0.0001, Number(exchangeRate) || 1);
+
+  // Calcula o Frete Interno Local herdado proporcionalmente dos pacotes que estão disponíveis para consolidação
+  // Considerando a conversão de moeda (caso origem != destino) e a redistribuição dos CDs descartados
   const inheritedInternalShippingFromSelected = useMemo(() => {
     if (selectedExistingCdIds.size === 0) return 0;
     let inherited = 0;
     for (const fp of eligibleForwarderPackages) {
-      const totalCdsInPkg = fp.items.length;
-      if (totalCdsInPkg === 0) continue;
-      const selectedCdsInPkg = fp.items.filter((cd) =>
+      const keptItemsInPkg = fp.items.filter(
+        (cd) => !discardedExistingCdIds.has(cd.id)
+      );
+      const keptCount = keptItemsInPkg.length;
+      if (keptCount === 0) continue;
+
+      const selectedCdsInPkg = keptItemsInPkg.filter((cd) =>
         selectedExistingCdIds.has(cd.id)
       ).length;
       if (selectedCdsInPkg === 0) continue;
 
       const shipLevelInternal = Number(fp.shipment.internalShipping) || 0;
       if (shipLevelInternal > 0) {
-        inherited += shipLevelInternal * (selectedCdsInPkg / totalCdsInPkg);
+        const sourceRate =
+          Number(fp.shipment.exchangeRate) ||
+          CURRENCY_META[fp.shipment.currency]?.defaultRate ||
+          1;
+        const conversionFactor =
+          fp.shipment.currency === currency ? 1 : sourceRate / parsedRate;
+
+        inherited +=
+          shipLevelInternal *
+          conversionFactor *
+          (selectedCdsInPkg / keptCount);
       }
     }
     return Number(inherited.toFixed(4));
-  }, [eligibleForwarderPackages, selectedExistingCdIds]);
+  }, [
+    eligibleForwarderPackages,
+    selectedExistingCdIds,
+    discardedExistingCdIds,
+    currency,
+    parsedRate,
+  ]);
 
   // Conta quantos pacotes distintos do redirecionador tiveram itens selecionados
   const selectedSourceShipmentsCount = useMemo(() => {
@@ -576,15 +627,20 @@ export function ShipmentModal({
     }
   };
 
-  // Marcar / Desmarcar um pacote inteiro disponível para consolidação
+  // Marcar / Desmarcar um pacote inteiro disponível para consolidação (ignorando os marcados para descarte)
   const handleToggleWholeForwarderPackage = (fp: ForwarderPackageOption) => {
     setSelectedExistingCdIds((prev) => {
       const next = new Set(prev);
-      const allSelected = fp.items.every((cd) => next.has(cd.id));
+      const nonDiscardedItems = fp.items.filter(
+        (cd) => !discardedExistingCdIds.has(cd.id)
+      );
+      const allSelected =
+        nonDiscardedItems.length > 0 &&
+        nonDiscardedItems.every((cd) => next.has(cd.id));
       if (allSelected) {
-        fp.items.forEach((cd) => next.delete(cd.id));
+        nonDiscardedItems.forEach((cd) => next.delete(cd.id));
       } else {
-        fp.items.forEach((cd) => next.add(cd.id));
+        nonDiscardedItems.forEach((cd) => next.add(cd.id));
       }
       applyPresetFeeIfSelectionChanged(next.size, prev.size);
       return next;
@@ -593,6 +649,14 @@ export function ShipmentModal({
 
   // Marcar / Desmarcar um CD individual de dentro de um pacote disponível para consolidação
   const handleToggleSingleForwarderCd = (cdId: string) => {
+    if (discardedExistingCdIds.has(cdId)) {
+      // Se estava marcado para descarte, tira do descarte e seleciona para consolidar
+      setDiscardedExistingCdIds((prev) => {
+        const next = new Set(prev);
+        next.delete(cdId);
+        return next;
+      });
+    }
     setSelectedExistingCdIds((prev) => {
       const next = new Set(prev);
       if (next.has(cdId)) {
@@ -605,14 +669,43 @@ export function ShipmentModal({
     });
   };
 
+  // Alternar Descarte (Exclusão) de um CD durante a consolidação
+  const handleToggleDiscardForwarderCd = (cdId: string) => {
+    setDiscardedExistingCdIds((prevDiscarded) => {
+      const nextDiscarded = new Set(prevDiscarded);
+      const willDiscard = !nextDiscarded.has(cdId);
+      if (willDiscard) {
+        nextDiscarded.add(cdId);
+        setSelectedExistingCdIds((prevSelected) => {
+          if (!prevSelected.has(cdId)) return prevSelected;
+          const nextSelected = new Set(prevSelected);
+          nextSelected.delete(cdId);
+          applyPresetFeeIfSelectionChanged(
+            nextSelected.size,
+            prevSelected.size
+          );
+          return nextSelected;
+        });
+      } else {
+        nextDiscarded.delete(cdId);
+      }
+      return nextDiscarded;
+    });
+  };
+
   const handleSelectAllForwarderPackages = () => {
     setSelectedExistingCdIds((prev) => {
-      const allIds = eligibleForwarderPackages.flatMap((fp) =>
-        fp.items.map((cd) => cd.id)
+      const allNonDiscardedIds = eligibleForwarderPackages.flatMap((fp) =>
+        fp.items
+          .filter((cd) => !discardedExistingCdIds.has(cd.id))
+          .map((cd) => cd.id)
       );
       const isAllSelected =
-        allIds.length > 0 && allIds.every((id) => prev.has(id));
-      const next = isAllSelected ? new Set<string>() : new Set<string>(allIds);
+        allNonDiscardedIds.length > 0 &&
+        allNonDiscardedIds.every((id) => prev.has(id));
+      const next = isAllSelected
+        ? new Set<string>()
+        : new Set<string>(allNonDiscardedIds);
       applyPresetFeeIfSelectionChanged(next.size, prev.size);
       return next;
     });
@@ -621,7 +714,6 @@ export function ShipmentModal({
   if (!isOpen) return null;
 
   const currSymbol = CURRENCY_META[currency].symbol;
-  const parsedRate = Math.max(0.0001, Number(exchangeRate) || 1);
 
   // Soma dos preços individuais digitados em cada CD
   const sumOfIndividualPrices = cdEntries.reduce(
@@ -663,6 +755,7 @@ export function ShipmentModal({
     eligibleForwarderPackages.length > 0 &&
     (!isAlreadyShippedStatus ||
       selectedExistingCdIds.size > 0 ||
+      discardedExistingCdIds.size > 0 ||
       isForwarderExpandedManual);
 
   // Lista combinada de CDs (CDs digitados neste pacote + CDs selecionados da consolidação) para gerar o nome automático
@@ -687,6 +780,19 @@ export function ShipmentModal({
     combinedItemsForNaming,
     editingShipment?.name || name
   );
+
+  const effectivePackageName =
+    isCustomName && name.trim() ? name.trim() : autoGeneratedName;
+
+  // Cálculo de peso / métricas de envio no modal
+  const totalDiscsPreview =
+    filledCdEntries.reduce((acc, e) => acc + (e.discCount || 1), 0) +
+    selectedForwarderCDs.reduce((acc, cd) => acc + (cd.discCount || 1), 0);
+  const parsedWeightKg = Math.max(0, parseFloat(weightKg) || 0);
+  const gramsPerDiscPreview =
+    parsedWeightKg > 0 && totalDiscsPreview > 0
+      ? Math.round((parsedWeightKg * 1000) / totalDiscsPreview)
+      : null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -744,9 +850,10 @@ export function ShipmentModal({
         : undefined;
 
     const absorbedForwarder: AbsorbedForwarderItemsPayload | undefined =
-      selectedExistingCdIds.size > 0
+      selectedExistingCdIds.size > 0 || discardedExistingCdIds.size > 0
         ? {
             selectedCdIds: Array.from(selectedExistingCdIds),
+            discardedCdIds: Array.from(discardedExistingCdIds),
             mode: consolidationAction,
             inheritedInternalShipping: inheritedInternalShippingFromSelected,
           }
@@ -777,7 +884,8 @@ export function ShipmentModal({
 
     onSave(
       {
-        name: autoGeneratedName,
+        name: effectivePackageName,
+        isCustomName: Boolean(isCustomName && name.trim()),
         shippingDate,
         status: effectiveStatus,
         currency,
@@ -795,12 +903,12 @@ export function ShipmentModal({
             ? (editingShipment?.sourcePackagesCount || 0) +
               selectedSourceShipmentsCount
             : editingShipment?.sourcePackagesCount,
+        weightKg: parsedWeightKg > 0 ? Number(parsedWeightKg.toFixed(3)) : undefined,
         internalShipping: Number(totalInternalShippingEffective.toFixed(4)),
         forwarderFee: parsedForwarderFeeNum,
         internationalShipping: parsedIntShipNum,
         customsTaxBrl: Math.max(0, parseFloat(customsTaxBrl) || 0),
         isTaxEstimated,
-        postalFeeBrl: 0,
         internationalTrackingCode: internationalTrackingCode.trim(),
         notes: notes.trim(),
       },
@@ -812,7 +920,9 @@ export function ShipmentModal({
   };
 
   const allForwarderCdIds = eligibleForwarderPackages.flatMap((fp) =>
-    fp.items.map((cd) => cd.id)
+    fp.items
+      .filter((cd) => !discardedExistingCdIds.has(cd.id))
+      .map((cd) => cd.id)
   );
   const areAllForwarderSelected =
     allForwarderCdIds.length > 0 &&
@@ -821,21 +931,69 @@ export function ShipmentModal({
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4">
       <div className="relative w-full max-w-3xl max-h-[94dvh] sm:max-h-[90vh] flex flex-col rounded-t-2xl sm:rounded-2xl bg-slate-900 border-t sm:border border-slate-700/80 shadow-2xl overflow-hidden">
-        {/* Header Fixo com Identificação Automática em Tempo Real */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-800/80 border-b border-slate-700/70 shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0">
+        {/* Header Fixo com Identificação Automática ou Nome Personalizado */}
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-800/80 border-b border-slate-700/70 shrink-0 gap-3">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 shrink-0">
               <Package className="w-5 h-5" />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h2 className="text-base sm:text-lg font-semibold text-white truncate">
                 {editingShipment
                   ? 'Editar Pacote e CDs'
                   : 'Novo Pacote de Importação'}
               </h2>
-              <p className="text-xs text-indigo-300 font-medium truncate">
-                {autoGeneratedName}
-              </p>
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="text"
+                  value={isCustomName ? name : autoGeneratedName}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    setIsCustomName(true);
+                  }}
+                  placeholder={autoGeneratedName}
+                  title="Digite para definir um nome personalizado ou use o botão ao lado para alternar entre Automático e Personalizado"
+                  className={`flex-1 min-w-0 rounded-lg px-2.5 py-1 text-xs font-medium border focus:outline-none transition ${
+                    isCustomName
+                      ? 'bg-slate-950 border-amber-500/60 text-amber-200'
+                      : 'bg-slate-950/60 border-slate-700/80 text-indigo-300'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isCustomName) {
+                      setIsCustomName(false);
+                      setName(autoGeneratedName);
+                    } else {
+                      setName(autoGeneratedName);
+                      setIsCustomName(true);
+                    }
+                  }}
+                  title={
+                    isCustomName
+                      ? 'Nome travado manualmente. Clique para voltar ao nome automático.'
+                      : 'Nome gerado automaticamente pelos CDs. Clique para travar um nome personalizado.'
+                  }
+                  className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium border shrink-0 transition ${
+                    isCustomName
+                      ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
+                      : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/25'
+                  }`}
+                >
+                  {isCustomName ? (
+                    <>
+                      <Lock className="w-3 h-3" />
+                      <span className="hidden sm:inline">Personalizado</span>
+                    </>
+                  ) : (
+                    <>
+                      <Unlock className="w-3 h-3" />
+                      <span className="hidden sm:inline">Automático</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
           <button
@@ -866,7 +1024,22 @@ export function ShipmentModal({
                       : `CDs deste Pacote (${currency})`}
                   </span>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    O nome do pacote (<strong className="text-slate-200">{autoGeneratedName}</strong>) é gerado automaticamente pelos CDs abaixo.
+                    {isCustomName ? (
+                      <>
+                        Nome personalizado travado:{' '}
+                        <strong className="text-amber-300">
+                          {effectivePackageName}
+                        </strong>
+                      </>
+                    ) : (
+                      <>
+                        O nome do pacote (
+                        <strong className="text-slate-200">
+                          {autoGeneratedName}
+                        </strong>
+                        ) é gerado automaticamente pelos CDs abaixo.
+                      </>
+                    )}
                   </p>
                 </div>
 
@@ -885,7 +1058,8 @@ export function ShipmentModal({
                 <div className="col-span-2 sm:col-span-4">
                   <label className="block text-xs text-slate-300 mb-1">
                     <span className="inline-flex items-center gap-1">
-                      <Coins className="w-3.5 h-3.5 text-amber-400" /> Moeda ({parsedRate.toFixed(2)} R$)
+                      <Coins className="w-3.5 h-3.5 text-amber-400" /> Moeda (
+                      {parsedRate.toFixed(2)} R$)
                     </span>
                   </label>
                   <select
@@ -893,12 +1067,17 @@ export function ShipmentModal({
                     onChange={(e) =>
                       handleCurrencyChange(e.target.value as CurrencyCode)
                     }
-                    title={`${rateSourceInfo} (1 ${currency} ≈ R$ ${parsedRate.toFixed(2)})`}
+                    title={`${rateSourceInfo} (1 ${currency} ≈ R$ ${parsedRate.toFixed(
+                      2
+                    )})`}
                     className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-base sm:text-sm text-white focus:border-purple-400 focus:outline-none"
                   >
                     {Object.entries(CURRENCY_META).map(([code, meta]) => (
                       <option key={code} value={code}>
-                        {code} ({meta.symbol}) ≈ R$ {code === currency ? parsedRate.toFixed(2) : meta.defaultRate.toFixed(2)}
+                        {code} ({meta.symbol}) ≈ R${' '}
+                        {code === currency
+                          ? parsedRate.toFixed(2)
+                          : meta.defaultRate.toFixed(2)}
                       </option>
                     ))}
                   </select>
@@ -966,7 +1145,7 @@ export function ShipmentModal({
                 </div>
               </div>
 
-              {/* Lista de Linhas de CD (Responsiva no Mobile e Desktop) */}
+              {/* Lista de Linhas de CD (Responsiva no Mobile e Desktop + Nº de Discos) */}
               <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                 {cdEntries.map((entry, idx) => {
                   const totalCands = entry.coverCandidates?.length || 0;
@@ -1065,10 +1244,28 @@ export function ShipmentModal({
                         </div>
                       </div>
 
-                      {/* Preço Individual + Botão Capa + Excluir */}
-                      <div className="flex items-center justify-end gap-2 sm:shrink-0 pl-13 sm:pl-0">
-                        <div className="relative flex-1 sm:flex-initial sm:w-28">
-                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-400">
+                      {/* Nº Discos + Preço Individual + Botão Capa + Excluir */}
+                      <div className="flex items-center justify-end gap-1.5 sm:shrink-0 pl-13 sm:pl-0">
+                        <div className="w-14" title="Nº de Discos físicos (1 = Simples, 2 = Duplo, 3+ = Box Set)">
+                          <input
+                            type="number"
+                            min="1"
+                            max="50"
+                            value={entry.discCount || 1}
+                            onChange={(e) =>
+                              handleUpdateCdEntry(
+                                idx,
+                                'discCount',
+                                e.target.value
+                              )
+                            }
+                            aria-label="Número de discos"
+                            className="w-full rounded-lg bg-slate-900 border border-slate-700 px-1.5 py-2 text-base sm:text-xs text-indigo-300 font-mono text-center focus:border-purple-400 focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="relative flex-1 sm:flex-initial sm:w-24">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-400">
                             {currSymbol}
                           </span>
                           <input
@@ -1089,7 +1286,7 @@ export function ShipmentModal({
                               )
                             }
                             title="Preço pago neste CD específico"
-                            className="w-full rounded-lg bg-slate-900 border border-slate-700 pl-6 pr-2.5 py-2 text-base sm:text-xs text-white font-mono placeholder-slate-500 focus:border-purple-400 focus:outline-none text-right"
+                            className="w-full rounded-lg bg-slate-900 border border-slate-700 pl-5 pr-2 py-2 text-base sm:text-xs text-white font-mono placeholder-slate-500 focus:border-purple-400 focus:outline-none text-right"
                           />
                         </div>
 
@@ -1167,7 +1364,7 @@ export function ShipmentModal({
 
             {/* =====================================================================
                 BLOCO 2: AGRUPAMENTO DE PACOTES ÚNICOS DISPONÍVEIS PARA CONSOLIDAR
-                (Apenas pacotes não consolidados aparecem aqui!)
+                (Com suporte a Descarte / Exclusão de CDs para reduzir peso!)
                 ===================================================================== */}
             {eligibleForwarderPackages.length > 0 && !showForwarderBox && (
               <div className="rounded-xl bg-slate-950/70 border border-slate-800 px-4 py-2.5 flex items-center justify-between gap-3">
@@ -1205,8 +1402,10 @@ export function ShipmentModal({
                       {eligibleForwarderPackages.length} disponíveis)
                     </span>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                      Apenas compras avulsas (ainda não consolidadas) aparecem
-                      abaixo. Ao salvar, mudarão para &ldquo;Já Consolidado&rdquo;.
+                      Selecione os CDs para incluir na caixa ou clique na{' '}
+                      <strong className="text-rose-300">lixeira (🗑️)</strong>{' '}
+                      para descartar um CD no redirecionador (redistribuindo seu
+                      custo entre os CDs mantidos).
                     </p>
                   </div>
 
@@ -1230,7 +1429,8 @@ export function ShipmentModal({
                     </button>
 
                     {isAlreadyShippedStatus &&
-                      selectedExistingCdIds.size === 0 && (
+                      selectedExistingCdIds.size === 0 &&
+                      discardedExistingCdIds.size === 0 && (
                         <button
                           type="button"
                           onClick={() => setIsForwarderExpandedManual(false)}
@@ -1243,21 +1443,32 @@ export function ShipmentModal({
                   </div>
                 </div>
 
-                {/* Lista de Pacotes com status No Redirecionador */}
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {/* Lista de Pacotes Elegíveis */}
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                   {eligibleForwarderPackages.map((fp) => {
-                    const selectedInPkg = fp.items.filter((cd) =>
+                    const nonDiscardedInPkg = fp.items.filter(
+                      (cd) => !discardedExistingCdIds.has(cd.id)
+                    );
+                    const discardedInPkgCount =
+                      fp.items.length - nonDiscardedInPkg.length;
+                    const selectedInPkg = nonDiscardedInPkg.filter((cd) =>
                       selectedExistingCdIds.has(cd.id)
                     ).length;
                     const isWholePkgSelected =
-                      selectedInPkg === fp.items.length && fp.items.length > 0;
+                      selectedInPkg === nonDiscardedInPkg.length &&
+                      nonDiscardedInPkg.length > 0;
                     const isPartiallySelected =
-                      selectedInPkg > 0 && selectedInPkg < fp.items.length;
+                      selectedInPkg > 0 &&
+                      selectedInPkg < nonDiscardedInPkg.length;
 
                     const pkgCdsSum = fp.items.reduce(
                       (acc, cd) => acc + (Number(cd.unitOriginalValue) || 0),
                       0
                     );
+                    const effectiveUnitAfterDiscard =
+                      nonDiscardedInPkg.length > 0
+                        ? pkgCdsSum / nonDiscardedInPkg.length
+                        : 0;
 
                     return (
                       <div
@@ -1287,14 +1498,18 @@ export function ShipmentModal({
                               {fp.shipment.name}
                             </span>
                             <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-300">
-                              {fp.items.length}{' '}
-                              {fp.items.length === 1 ? 'CD' : 'CDs'}
+                              {nonDiscardedInPkg.length}/{fp.items.length} CDs
                             </span>
+                            {discardedInPkgCount > 0 && (
+                              <span className="rounded bg-rose-500/20 border border-rose-500/40 px-1.5 py-0.5 text-[10px] font-mono text-rose-300">
+                                {discardedInPkgCount} descartado(s)
+                              </span>
+                            )}
                           </button>
 
                           <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400">
                             <span>
-                              CDs:{' '}
+                              Total Lote:{' '}
                               {formatOriginalCurrency(
                                 pkgCdsSum,
                                 fp.shipment.currency
@@ -1317,30 +1532,74 @@ export function ShipmentModal({
                             const isCdChecked = selectedExistingCdIds.has(
                               cd.id
                             );
+                            const isCdDiscarded = discardedExistingCdIds.has(
+                              cd.id
+                            );
+                            const displayPrice =
+                              discardedInPkgCount > 0 && !isCdDiscarded
+                                ? effectiveUnitAfterDiscard
+                                : cd.unitOriginalValue;
+
                             return (
-                              <button
+                              <div
                                 key={cd.id}
-                                type="button"
-                                onClick={() =>
-                                  handleToggleSingleForwarderCd(cd.id)
-                                }
-                                className={`flex items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left text-xs border transition ${
-                                  isCdChecked
+                                className={`flex items-center justify-between gap-1.5 rounded px-2.5 py-1.5 text-xs border transition ${
+                                  isCdDiscarded
+                                    ? 'bg-rose-950/35 border-rose-500/40 text-rose-300/80'
+                                    : isCdChecked
                                     ? 'bg-amber-500/15 border-amber-500/40 text-white'
                                     : 'bg-slate-900/70 border-slate-800 text-slate-400 hover:text-slate-200'
                                 }`}
                               >
-                                <span className="truncate">
-                                  {isCdChecked ? '✓ ' : ''}
-                                  <strong>{cd.artist}</strong> — {cd.albumTitle}
-                                </span>
-                                <span className="font-mono text-[11px] text-slate-300 shrink-0">
-                                  {formatOriginalCurrency(
-                                    cd.unitOriginalValue,
-                                    fp.shipment.currency
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleToggleSingleForwarderCd(cd.id)
+                                  }
+                                  className="flex items-center justify-between gap-2 flex-1 min-w-0 text-left"
+                                >
+                                  <span
+                                    className={`truncate ${
+                                      isCdDiscarded ? 'line-through' : ''
+                                    }`}
+                                  >
+                                    {isCdChecked ? '✓ ' : ''}
+                                    <strong>{cd.artist}</strong> —{' '}
+                                    {cd.albumTitle}
+                                  </span>
+                                  <span className="font-mono text-[11px] text-slate-300 shrink-0">
+                                    {isCdDiscarded
+                                      ? 'Descartado'
+                                      : formatOriginalCurrency(
+                                          displayPrice,
+                                          fp.shipment.currency
+                                        )}
+                                  </span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleToggleDiscardForwarderCd(cd.id)
+                                  }
+                                  title={
+                                    isCdDiscarded
+                                      ? 'Restaurar CD (cancelar descarte)'
+                                      : 'Descartar/Excluir este CD no redirecionador (redistribui o valor entre os demais CDs do lote)'
+                                  }
+                                  className={`p-1 rounded transition shrink-0 ${
+                                    isCdDiscarded
+                                      ? 'bg-rose-500/25 text-rose-200 hover:bg-rose-500/40'
+                                      : 'text-slate-500 hover:text-rose-400 hover:bg-slate-800'
+                                  }`}
+                                >
+                                  {isCdDiscarded ? (
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
                                   )}
-                                </span>
-                              </button>
+                                </button>
+                              </div>
                             );
                           })}
                         </div>
@@ -1348,6 +1607,24 @@ export function ShipmentModal({
                     );
                   })}
                 </div>
+
+                {discardedExistingCdIds.size > 0 && (
+                  <div className="rounded-lg bg-rose-950/35 border border-rose-500/40 px-3 py-2 text-[11px] text-rose-200 flex items-center gap-2">
+                    <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>
+                      <strong>
+                        {discardedExistingCdIds.size}{' '}
+                        {discardedExistingCdIds.size === 1
+                          ? 'CD marcado'
+                          : 'CDs marcados'}{' '}
+                        para descarte:
+                      </strong>{' '}
+                      serão excluídos ao salvar e seu valor pago + frete local
+                      serão redistribuídos automaticamente entre os CDs mantidos
+                      do mesmo lote.
+                    </span>
+                  </div>
+                )}
 
                 {selectedExistingCdIds.size > 0 && (
                   <div className="pt-2 border-t border-amber-500/30 space-y-2.5">
@@ -1457,20 +1734,20 @@ export function ShipmentModal({
             )}
 
             {/* =====================================================================
-                BLOCO 3: STATUS, DATA DE COMPRA, FRETES, TAXAS E ALFÂNDEGA
+                BLOCO 3: STATUS, DATA DE COMPRA, PESO (KG), FRETES E ALFÂNDEGA
                 ===================================================================== */}
             <div className="rounded-xl bg-slate-800/40 border border-slate-700/60 p-4 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
-                  <Truck className="w-4 h-4" /> Status, Compra, Fretes e Alfândega
+                  <Truck className="w-4 h-4" /> Status, Peso, Fretes e Alfândega
                 </span>
                 <span className="text-[11px] text-slate-400">
-                  Fretes podem ficar zerados até fechar a caixa
+                  Fretes e peso podem ficar zerados até fechar a caixa
                 </span>
               </div>
 
-              {/* Status do Pacote + Data de Compra */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {/* Status do Pacote + Data de Compra + Peso em kg */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">
                     Status do Pacote
@@ -1508,6 +1785,34 @@ export function ShipmentModal({
                     onChange={(e) => setShippingDate(e.target.value)}
                     className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-base sm:text-sm text-white focus:border-indigo-500 focus:outline-none"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Scale className="w-3.5 h-3.5 text-emerald-400" /> Peso do
+                      Pacote (kg)
+                    </span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="Ex: 0.80 ou 1.00"
+                      value={weightKg}
+                      onChange={(e) => setWeightKg(e.target.value)}
+                      className="w-full rounded-xl bg-slate-950 border border-slate-700 pl-3 pr-9 py-2 text-base sm:text-sm text-white font-mono focus:border-indigo-500 focus:outline-none"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-400">
+                      kg
+                    </span>
+                  </div>
+                  {gramsPerDiscPreview !== null && (
+                    <p className="text-[10px] text-emerald-400 mt-1 font-mono">
+                      {totalDiscsPreview} discos • ~{gramsPerDiscPreview} g/CD
+                    </p>
+                  )}
                 </div>
               </div>
 

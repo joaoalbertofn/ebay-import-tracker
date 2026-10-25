@@ -7,7 +7,6 @@ import {
 } from '@/types/tracker';
 
 export const MG_TAX_FACTOR = 0.9277;
-export const DEFAULT_POSTAL_FEE_BRL = 0;
 
 export const CURRENCY_META: Record<
   CurrencyCode,
@@ -94,7 +93,7 @@ export function getItemUnitInternalShipping(
 
 /**
  * Calcula todos os custos de um Pacote e o rateio exato de cada CD pertencente a ele,
- * seguindo estritamente as Regras de Negócio 1, 2, 3 e 4 (sem taxa de correios avulsa, usando valor único de importação).
+ * seguindo estritamente as Regras de Negócio 1, 2, 3 e 4.
  */
 export function calculateShipmentSummary(
   shipment: Shipment,
@@ -145,7 +144,6 @@ export function calculateShipmentSummary(
   const totalOriginIndirectBrl = totalOriginIndirectOriginal * exchangeRate;
 
   const customsTaxBrl = Number(shipment.customsTaxBrl) || 0;
-  const postalFeeBrl = 0; // Desativado conforme preferência: usa apenas valor único em customsTaxBrl
 
   const totalIndirectCostBrl = totalOriginIndirectBrl + customsTaxBrl;
 
@@ -181,11 +179,26 @@ export function calculateShipmentSummary(
 
   const totalShipmentCostBrl = totalItemsBrl + totalIndirectCostBrl;
 
+  // Métricas de Peso (quando informadas)
+  const weightKg =
+    shipment.weightKg && Number(shipment.weightKg) > 0
+      ? Number(shipment.weightKg)
+      : undefined;
+  const gramsPerDisc =
+    weightKg && totalPhysicalDiscsCount > 0
+      ? Math.round((weightKg * 1000) / totalPhysicalDiscsCount)
+      : undefined;
+  const shippingCostPerKgOriginal =
+    weightKg && internationalShipping > 0
+      ? internationalShipping / weightKg
+      : undefined;
+  const shippingCostPerKgBrl =
+    shippingCostPerKgOriginal !== undefined
+      ? shippingCostPerKgOriginal * exchangeRate
+      : undefined;
+
   return {
-    shipment: {
-      ...shipment,
-      postalFeeBrl,
-    },
+    shipment,
     items: calculatedItems,
     totalItemsCount,
     totalPhysicalDiscsCount,
@@ -199,6 +212,10 @@ export function calculateShipmentSummary(
     allocatedCostPerItemBrl,
     totalShipmentCostBrl,
     estimatedTaxMgBrl,
+    weightKg,
+    gramsPerDisc,
+    shippingCostPerKgOriginal,
+    shippingCostPerKgBrl,
   };
 }
 
@@ -292,6 +309,14 @@ export function formatOriginalCurrency(
   }).format(Number.isFinite(value) ? value : 0);
 }
 
+export function formatWeightKg(weightKg?: number): string {
+  if (!weightKg || !Number.isFinite(weightKg) || weightKg <= 0) return '';
+  return `${weightKg.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} kg`;
+}
+
 /**
  * Gera automaticamente o Nome Identificador do Pacote a partir dos CDs pertencentes a ele:
  * - 1 CD: "[CD Individual] Artista - Álbum"
@@ -336,7 +361,11 @@ export function generatePackageName(
 
   for (const item of validItems) {
     const artist = (item.artist || '').trim();
-    if (!artist || artist.startsWith('[Lote]') || artist.startsWith('[CD Individual]')) {
+    if (
+      !artist ||
+      artist.startsWith('[Lote]') ||
+      artist.startsWith('[CD Individual]')
+    ) {
       continue;
     }
     const key = artist.toLowerCase();
@@ -352,4 +381,3 @@ export function generatePackageName(
 
   return `[Lote] ${items.length} CDs`;
 }
-

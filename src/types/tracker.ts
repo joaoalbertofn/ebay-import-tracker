@@ -13,11 +13,10 @@ export type ConsolidationMode =
   | 'group_only' // Opção 1: Apenas agrupar pacotes originais em um novo volume
   | 'unpack_and_repack'; // Opção 2: Desempacotar caixas originais + criar novo volume
 
-export const LOCKER_SHIPMENT_ID = 'LOCKER';
-
 export interface Shipment {
   id: string;
   name: string;
+  isCustomName?: boolean; // Quando true, trava o nome personalizado e impede sobrescrita automática
   shippingDate: string; // YYYY-MM-DD ou vazio se ainda não enviado
   status: ShipmentStatus;
   currency: CurrencyCode;
@@ -25,14 +24,12 @@ export interface Shipment {
   exchangeRateSource?: string; // Ex: "AwesomeAPI (Comercial) às 14:30"
   consolidationMode?: ConsolidationMode; // Como este pacote foi formado no redirecionador
   sourcePackagesCount?: number; // Quantos pacotes do eBay foram consolidados neste volume
-  unpackingFee?: number; // Taxa de desempacotamento (na Moeda Original)
-  groupingFee?: number; // Taxa de agrupamento / novo volume (na Moeda Original)
+  weightKg?: number; // Peso total do pacote em quilogramas (ex: 0.80, 1.00)
   internalShipping: number; // Frete interno avulso no nível do pacote (na Moeda Original)
   forwarderFee: number; // Taxa total do redirecionador (desempacotamento + agrupamento na Moeda Original)
   internationalShipping: number; // Frete internacional para o Brasil (na Moeda Original)
   customsTaxBrl: number; // Impostos Alfandegários (II + ICMS) em BRL
   isTaxEstimated: boolean; // Indica se o imposto atual é uma estimativa (0.9277) ou valor real da DIT
-  postalFeeBrl: number; // Taxa de despacho postal dos Correios em BRL (Padrão: R$ 18,10)
   internationalTrackingCode?: string; // Código de rastreio do redirecionador para o Brasil
   notes?: string;
   createdAt: string;
@@ -40,8 +37,8 @@ export interface Shipment {
 
 export interface CDItem {
   id: string;
-  shipmentId: string; // ID do Pacote para o Brasil ou 'LOCKER' quando está no Cofre do Redirecionador
-  currency?: CurrencyCode; // Moeda da compra no eBay (usada especialmente enquanto está no Cofre)
+  shipmentId: string; // ID do Pacote ao qual pertence
+  currency?: CurrencyCode; // Moeda da compra no eBay
   artist: string;
   albumTitle: string;
   discCount: number; // 1 para CD simples, 2 para duplo, N para Box Set
@@ -49,7 +46,7 @@ export interface CDItem {
   bundleId?: string; // Identificador do pacote/compra original do eBay
   bundleName?: string; // Ex: "Lote 5 CDs Post-Hardcore Vendedor X"
   bundleTotalValue?: number; // Valor total pago no bundle (na moeda original)
-  bundleTotalQuantity?: number; // Quantidade total de CDs comprados naquele pacote do eBay
+  bundleTotalQuantity?: number; // Quantidade total de CDs mantidos daquele pacote do eBay
   bundleInternalShipping?: number; // Frete interno total daquela compra no eBay até o redirecionador
   unitInternalShipping?: number; // Frete interno diluído por CD (permite desmembrar lotes em pacotes diferentes)
   packingHandling?: 'original_box' | 'unpacked'; // Se foi mantido na caixa original ou tirado da caixa no redirecionador
@@ -83,11 +80,16 @@ export interface ShipmentCalculationSummary {
   totalOriginIndirectOriginal: number; // totalInternalShippingOriginal + forwarderFee + internationalShipping
   totalOriginIndirectBrl: number; // totalOriginIndirectOriginal * exchangeRate
   // Custos Indiretos Totais (BRL)
-  totalIndirectCostBrl: number; // totalOriginIndirectBrl + customsTaxBrl + postalFeeBrl
+  totalIndirectCostBrl: number; // totalOriginIndirectBrl + customsTaxBrl
   // Rateio Unitário (Regra 2)
   allocatedCostPerItemBrl: number; // totalIndirectCostBrl / totalItemsCount
   // Custo Total do Pacote (BRL)
   totalShipmentCostBrl: number; // totalItemsBrl + totalIndirectCostBrl
   // Estimativa MG (Regra 4: 0.9277)
-  estimatedTaxMgBrl: number; // ((totalItemsOriginal + internationalShipping) * exchangeRate) * 0.9277
+  estimatedTaxMgBrl: number; // (totalItemsOriginal * exchangeRate) * 0.9277
+  // Métricas de Peso (quando shipment.weightKg > 0)
+  weightKg?: number;
+  gramsPerDisc?: number;
+  shippingCostPerKgOriginal?: number;
+  shippingCostPerKgBrl?: number;
 }
