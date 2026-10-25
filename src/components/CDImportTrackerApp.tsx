@@ -2632,11 +2632,25 @@ export default function CDImportTrackerApp() {
 
                         {selectedSummary.shipment.internationalTrackingCode && (
                           <a
-                            href={`https://www.17track.net/pt/track#nums=${selectedSummary.shipment.internationalTrackingCode}`}
+                            href="https://portalimportador.correios.com.br/pages/pesquisarRemessaImportador/pesquisarRemessaImportador.jsf"
                             target="_blank"
                             rel="noreferrer"
+                            onClick={() => {
+                              const code =
+                                selectedSummary.shipment.internationalTrackingCode?.trim();
+                              if (code && navigator.clipboard?.writeText) {
+                                navigator.clipboard
+                                  .writeText(code)
+                                  .then(() => {
+                                    showToast(
+                                      `Código ${code} copiado! Cole (Cmd+V / Ctrl+V) na busca dos Correios.`
+                                    );
+                                  })
+                                  .catch(() => {});
+                              }
+                            }}
                             className="inline-flex items-center gap-1 rounded-md bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 font-mono text-[11px] text-sky-300 hover:bg-sky-500/25 transition"
-                            title="Rastrear pacote internacional no 17TRACK"
+                            title="Copiar código e abrir Minhas Importações (Correios)"
                           >
                             <Truck className="w-3 h-3" />
                             {selectedSummary.shipment.internationalTrackingCode}
