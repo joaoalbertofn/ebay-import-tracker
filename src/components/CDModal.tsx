@@ -9,8 +9,10 @@ import {
 } from '@/lib/calculations';
 import {
   AlbumCoverCandidate,
+  resolveCoverCycleOrFetch,
   searchAlbumCoverCandidates,
 } from '@/lib/coverArt';
+import { AlbumCover } from '@/components/AlbumCover';
 import {
   X,
   Disc3,
@@ -218,81 +220,34 @@ export function CDModal({
     const target = batchEntries[index];
     if (!target) return;
 
-    if (
+    const isCachedCycle =
       cycleNext &&
       target.coverCandidates &&
-      target.coverCandidates.length > 1
-    ) {
-      const currentIdx = target.coverCandidateIndex ?? 0;
-      const nextIdx = (currentIdx + 1) % target.coverCandidates.length;
-      const nextCand = target.coverCandidates[nextIdx];
+      target.coverCandidates.length > 1;
+
+    if (!isCachedCycle) {
+      if (!(target.artist.trim() || artist.trim()) && !target.albumTitle.trim())
+        return;
+      setBatchEntries((prev) =>
+        prev.map((entry, idx) =>
+          idx === index ? { ...entry, isFetchingCover: true } : entry
+        )
+      );
+    }
+
+    try {
+      const { patch } = await resolveCoverCycleOrFetch(
+        target,
+        cycleNext,
+        artist
+      );
       setBatchEntries((prev) =>
         prev.map((entry, idx) =>
           idx === index
-            ? {
-                ...entry,
-                coverUrl: nextCand.coverUrl,
-                releaseYear: nextCand.releaseYear || entry.releaseYear,
-                coverCandidateIndex: nextIdx,
-              }
+            ? { ...entry, ...(patch || {}), isFetchingCover: false }
             : entry
         )
       );
-      return;
-    }
-
-    const artistQuery = target.artist.trim() || artist.trim();
-    const albumQuery = target.albumTitle.trim();
-    if (!artistQuery && !albumQuery) return;
-
-    setBatchEntries((prev) =>
-      prev.map((entry, idx) =>
-        idx === index ? { ...entry, isFetchingCover: true } : entry
-      )
-    );
-
-    try {
-      const candidates = await searchAlbumCoverCandidates(
-        artistQuery,
-        albumQuery
-      );
-      if (candidates.length > 0) {
-        let chosenIdx = 0;
-        if (
-          cycleNext &&
-          candidates.length > 1 &&
-          target.coverUrl === candidates[0].coverUrl
-        ) {
-          chosenIdx = 1;
-        }
-        const chosen = candidates[chosenIdx];
-        setBatchEntries((prev) =>
-          prev.map((entry, idx) =>
-            idx === index
-              ? {
-                  ...entry,
-                  artist:
-                    entry.artist.trim() || chosen.artistName || entry.artist,
-                  albumTitle:
-                    entry.albumTitle.trim() ||
-                    chosen.albumTitle ||
-                    entry.albumTitle,
-                  coverUrl: chosen.coverUrl,
-                  releaseYear: chosen.releaseYear,
-                  coverCandidates: candidates,
-                  coverCandidateIndex: chosenIdx,
-                  isFetchingCover: false,
-                }
-              : entry
-          )
-        );
-      } else {
-        setBatchEntries((prev) =>
-          prev.map((entry, idx) =>
-            idx === index ? { ...entry, isFetchingCover: false } : entry
-          )
-        );
-      }
     } catch {
       setBatchEntries((prev) =>
         prev.map((entry, idx) =>
@@ -586,16 +541,11 @@ export function CDModal({
 
                   <div className="flex items-center gap-3.5">
                     <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-xl bg-slate-950 border border-slate-700 flex items-center justify-center overflow-hidden shrink-0 shadow-md">
-                      {coverUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={coverUrl}
-                          alt={albumTitle}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <Disc3 className="w-8 h-8 text-slate-600" />
-                      )}
+                      <AlbumCover
+                        src={coverUrl}
+                        alt={albumTitle}
+                        iconClassName="w-8 h-8 text-slate-600"
+                      />
                     </div>
 
                     <div className="flex-1 min-w-0 space-y-1.5">
@@ -799,22 +749,19 @@ export function CDModal({
                             >
                               {entry.isFetchingCover ? (
                                 <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
-                              ) : entry.coverUrl ? (
+                              ) : (
                                 <>
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img
+                                  <AlbumCover
                                     src={entry.coverUrl}
                                     alt={entry.albumTitle || 'Capa'}
-                                    className="h-full w-full object-cover"
+                                    iconClassName="w-5 h-5 text-slate-600 hover:text-purple-400"
                                   />
-                                  {totalCands > 1 && (
+                                  {entry.coverUrl && totalCands > 1 && (
                                     <span className="absolute bottom-0 right-0 bg-black/80 text-[8px] font-mono text-purple-200 px-1 rounded-tl">
                                       {currentCandNum}/{totalCands}
                                     </span>
                                   )}
                                 </>
-                              ) : (
-                                <Disc3 className="w-5 h-5 text-slate-600 hover:text-purple-400" />
                               )}
                             </button>
 

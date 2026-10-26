@@ -55,6 +55,14 @@ export const CURRENCY_META: Record<
   },
 };
 
+export function getTodayLocalIsoDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 /**
  * Retorna o frete interno unitário (na moeda original) correspondente a 1 CD específico
  * quando o frete interno foi lançado no nível de CD/Bundle.
@@ -62,7 +70,8 @@ export const CURRENCY_META: Record<
  */
 export function getItemUnitInternalShipping(
   item: CDItem,
-  allItems?: CDItem[]
+  allItems?: CDItem[],
+  bundleCountsMap?: Map<string, number>
 ): number {
   if (
     item.unitInternalShipping !== undefined &&
@@ -78,10 +87,12 @@ export function getItemUnitInternalShipping(
     if (item.bundleTotalQuantity && item.bundleTotalQuantity > 0) {
       return rawBundleShipping / Number(item.bundleTotalQuantity);
     }
-    if (item.bundleId && allItems) {
-      const siblingsCount = allItems.filter(
-        (cd) => cd.bundleId === item.bundleId
-      ).length;
+    if (item.bundleId) {
+      const siblingsCount =
+        bundleCountsMap?.get(item.bundleId) ??
+        (allItems
+          ? allItems.filter((cd) => cd.bundleId === item.bundleId).length
+          : 0);
       if (siblingsCount > 0) {
         return rawBundleShipping / siblingsCount;
       }
@@ -97,11 +108,13 @@ export function getItemUnitInternalShipping(
  */
 export function calculateShipmentSummary(
   shipment: Shipment,
-  allItems: CDItem[]
+  allItems: CDItem[],
+  preFilteredShipmentItems?: CDItem[],
+  bundleCountsMap?: Map<string, number>
 ): ShipmentCalculationSummary {
-  const shipmentItems = allItems.filter(
-    (item) => item.shipmentId === shipment.id
-  );
+  const shipmentItems =
+    preFilteredShipmentItems ??
+    allItems.filter((item) => item.shipmentId === shipment.id);
   const totalItemsCount = shipmentItems.length;
   const totalPhysicalDiscsCount = shipmentItems.reduce(
     (acc, item) => acc + (Number(item.discCount) || 1),
@@ -124,7 +137,9 @@ export function calculateShipmentSummary(
   const bundlesInternalShippingOriginal = Number(
     shipmentItems
       .reduce(
-        (acc, item) => acc + getItemUnitInternalShipping(item, allItems),
+        (acc, item) =>
+          acc +
+          getItemUnitInternalShipping(item, allItems, bundleCountsMap),
         0
       )
       .toFixed(4)
@@ -137,8 +152,6 @@ export function calculateShipmentSummary(
   const internationalShipping = Number(shipment.internationalShipping) || 0;
 
   // Regra 1: Calcular o Custo Indireto Total do Pacote
-  // Soma-se: (Frete Interno + Taxa Redirecionador + Frete Internacional) * Taxa de Câmbio
-  // + Taxa Única de Importação (BRL)
   const totalOriginIndirectOriginal =
     totalInternalShippingOriginal + forwarderFee + internationalShipping;
   const totalOriginIndirectBrl = totalOriginIndirectOriginal * exchangeRate;
@@ -148,12 +161,10 @@ export function calculateShipmentSummary(
   const totalIndirectCostBrl = totalOriginIndirectBrl + customsTaxBrl;
 
   // Regra 2: O Rateio Unitário
-  // Dividir o "Custo Indireto Total (BRL)" pela quantidade total de CDs cadastrados no pacote
   const allocatedCostPerItemBrl =
     totalItemsCount > 0 ? totalIndirectCostBrl / totalItemsCount : 0;
 
   // Regra 3: Calcular o Custo Final de cada CD
-  // Custo_Final_BRL = (Valor_Unitario_Original * Taxa de Câmbio) + Rateio por CD
   const calculatedItems: CalculatedCDItem[] = shipmentItems.map((item) => {
     const unitOriginal = Number(item.unitOriginalValue) || 0;
     const directCostBrl = unitOriginal * exchangeRate;
@@ -161,7 +172,8 @@ export function calculateShipmentSummary(
     const discCount = Math.max(1, Number(item.discCount) || 1);
     const unitInternalShippingOriginal = getItemUnitInternalShipping(
       item,
-      allItems
+      allItems,
+      bundleCountsMap
     );
 
     return {
@@ -217,6 +229,43 @@ export function calculateShipmentSummary(
     shippingCostPerKgOriginal,
     shippingCostPerKgBrl,
   };
+}
+
+/**
+ * Calcula os resumos de todos os pacotes em O(N) agrupando os CDs em uma única passada.
+ */
+export function calculateAllShipmentSummaries(
+  shipments: Shipment[],
+  allItems: CDItem[]
+): Map<string, ShipmentCalculationSummary> {
+  const itemsByShipment = new Map<string, CDItem[]>();
+  const bundleCountsMap = new Map<string, number>();
+
+  for (const item of allItems) {
+    const list = itemsByShipment.get(item.shipmentId);
+    if (list) {
+      list.push(item);
+    } else {
+      itemsByShipment.set(item.shipmentId, [item]);
+    }
+
+    if (item.bundleId) {
+      bundleCountsMap.set(
+        item.bundleId,
+        (bundleCountsMap.get(item.bundleId) || 0) + 1
+      );
+    }
+  }
+
+  const map = new Map<string, ShipmentCalculationSummary>();
+  for (const ship of shipments) {
+    const shipItems = itemsByShipment.get(ship.id) || [];
+    map.set(
+      ship.id,
+      calculateShipmentSummary(ship, allItems, shipItems, bundleCountsMap)
+    );
+  }
+  return map;
 }
 
 /**

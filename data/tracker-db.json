@@ -1,7 +1,7 @@
 {
   "version": 2,
   "userId": "user_3KtfOrzGAERR0WSQDlHlX5DdLXe",
-  "updatedAt": "2026-10-25T22:43:52.189Z",
+  "updatedAt": "2026-10-25T23:28:52.257Z",
   "shipments": [
     {
       "name": "[CD Individual] Linkin Park - Hybrid Theory",
@@ -140,7 +140,7 @@
     {
       "name": "[Lote] Incubus - 30 seconds to mars - System of a down - Papa Roach - Ill Nino - Trivium",
       "shippingDate": "2026-10-18",
-      "status": "em_transito",
+      "status": "consolidado",
       "currency": "GBP",
       "exchangeRate": 6.7492,
       "exchangeRateSource": "AwesomeAPI (Comercial) às 22:59",

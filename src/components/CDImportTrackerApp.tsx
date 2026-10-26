@@ -12,14 +12,16 @@ import {
 import {
   CURRENCY_META,
   MG_TAX_FACTOR,
-  calculateShipmentSummary,
+  calculateAllShipmentSummaries,
   formatBrl,
   formatOriginalCurrency,
   formatWeightKg,
   generatePackageName,
   getItemUnitInternalShipping,
+  getTodayLocalIsoDate,
 } from '@/lib/calculations';
-import { fetchBestAlbumCover } from '@/lib/coverArt';
+import { fetchBestAlbumCover, fetchCoversInBatch } from '@/lib/coverArt';
+import { AlbumCover } from '@/components/AlbumCover';
 import { INITIAL_SHIPMENTS } from '@/lib/seedData';
 import {
   AbsorbedForwarderItemsPayload,
@@ -29,6 +31,7 @@ import {
   STATUS_LABELS,
 } from '@/components/ShipmentModal';
 import { CDModal } from '@/components/CDModal';
+import { DemandRadarView } from '@/components/DemandRadarView';
 import {
   Disc3,
   Package,
@@ -65,6 +68,9 @@ import {
   AlertTriangle,
   Check,
   X,
+  Flame,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 
 const STORAGE_KEY_SHIPMENTS = 'cd_import_tracker_shipments_v1';
@@ -176,6 +182,12 @@ export default function CDImportTrackerApp() {
     'synced' | 'saving' | 'error'
   >('synced');
 
+  // Módulo ativo no Menu Lateral: 'tracker' (Rastreamento & Pacotes) ou 'radar' (Radar Top 100 Demanda)
+  const [activeModule, setActiveModule] = useState<'tracker' | 'radar'>(
+    'tracker'
+  );
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
   // Aba principal: 'packages' (Master/Detail por pacotes) ou 'collection' (Visão Global de todos os CDs)
   const [activeMainTab, setActiveMainTab] = useState<'packages' | 'collection'>(
     'packages'
@@ -237,6 +249,8 @@ export default function CDImportTrackerApp() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isSyncingFromServerRef = useRef(false);
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncAbortRef = useRef<AbortController | null>(null);
+  const lastSyncedPayloadRef = useRef<string>('');
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -396,7 +410,13 @@ export default function CDImportTrackerApp() {
                 JSON.stringify(chosenShipments)
               );
               localStorage.setItem(userCdsKey, JSON.stringify(chosenCDs));
-              if (!preferLocal && serverData.updatedAt) {
+              if (preferLocal && localShipments && localCDs) {
+                await performServerSync(
+                  localShipments,
+                  localCDs,
+                  userUpdatedAtKey
+                );
+              } else if (serverData.updatedAt) {
                 localStorage.setItem(userUpdatedAtKey, serverData.updatedAt);
               }
               localStorage.setItem(userMigrationKey, '1');
@@ -455,18 +475,32 @@ export default function CDImportTrackerApp() {
     cdsToSave: CDItem[],
     userUpdatedAtKey: string
   ) => {
+    const serializedBody = JSON.stringify({
+      shipments: shipmentsToSave,
+      cdItems: cdsToSave,
+    });
+    if (serializedBody === lastSyncedPayloadRef.current) {
+      setCloudSyncStatus('synced');
+      return;
+    }
+
+    if (syncAbortRef.current) {
+      syncAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    syncAbortRef.current = controller;
+
     setCloudSyncStatus('saving');
     try {
       const r = await fetch('/api/tracker', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          shipments: shipmentsToSave,
-          cdItems: cdsToSave,
-        }),
+        body: serializedBody,
+        signal: controller.signal,
       });
       if (r.ok) {
         const data = await r.json();
+        lastSyncedPayloadRef.current = serializedBody;
         if (data?.updatedAt) {
           localStorage.setItem(userUpdatedAtKey, data.updatedAt);
         }
@@ -474,7 +508,8 @@ export default function CDImportTrackerApp() {
       } else {
         setCloudSyncStatus('error');
       }
-    } catch {
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return;
       setCloudSyncStatus('error');
     }
   };
@@ -491,6 +526,10 @@ export default function CDImportTrackerApp() {
 
     if (isSyncingFromServerRef.current) {
       isSyncingFromServerRef.current = false;
+      lastSyncedPayloadRef.current = JSON.stringify({
+        shipments,
+        cdItems,
+      });
       return;
     }
 
@@ -513,36 +552,28 @@ export default function CDImportTrackerApp() {
     };
   }, [shipments, cdItems, isHydrated, isSignedIn, currentUserId]);
 
-  // Busca automática de capas em background para uma lista de recém-criados
+  // Busca automática de capas em background com paralelismo controlado e única atualização de estado
   const autoPopulateCoversForItems = async (itemsToFetch: CDItem[]) => {
-    for (const item of itemsToFetch) {
-      if (item.coverUrl) continue;
-      if (item.albumTitle.startsWith('CD #')) continue;
+    const foundMap = await fetchCoversInBatch(itemsToFetch, 3);
+    if (foundMap.size === 0) return;
 
-      const best = await fetchBestAlbumCover(item.artist, item.albumTitle);
-      if (best) {
-        setCdItems((prev) =>
-          prev.map((cd) =>
-            cd.id === item.id
-              ? {
-                  ...cd,
-                  coverUrl: best.coverUrl,
-                  releaseYear: cd.releaseYear || best.releaseYear,
-                }
-              : cd
-          )
-        );
-      }
-    }
+    setCdItems((prev) =>
+      prev.map((cd) => {
+        const best = foundMap.get(cd.id);
+        return best
+          ? {
+              ...cd,
+              coverUrl: best.coverUrl,
+              releaseYear: cd.releaseYear || best.releaseYear,
+            }
+          : cd;
+      })
+    );
   };
 
-  // Calcula os resumos de TODOS os pacotes reativamente
+  // Calcula os resumos de TODOS os pacotes em O(N)
   const summariesMap = useMemo(() => {
-    const map = new Map<string, ShipmentCalculationSummary>();
-    for (const ship of shipments) {
-      map.set(ship.id, calculateShipmentSummary(ship, cdItems));
-    }
-    return map;
+    return calculateAllShipmentSummaries(shipments, cdItems);
   }, [shipments, cdItems]);
 
   const selectedSummary = useMemo(() => {
@@ -592,27 +623,24 @@ export default function CDImportTrackerApp() {
 
     setIsFetchingCoversBatch(true);
     try {
-      let foundCount = 0;
-      for (const item of targets) {
-        const best = await fetchBestAlbumCover(item.artist, item.albumTitle);
-        if (best) {
-          foundCount++;
-          setCdItems((prev) =>
-            prev.map((cd) =>
-              cd.id === item.id
-                ? {
-                    ...cd,
-                    coverUrl: best.coverUrl,
-                    releaseYear: cd.releaseYear || best.releaseYear,
-                  }
-                : cd
-            )
-          );
-        }
+      const foundMap = await fetchCoversInBatch(targets, 3);
+      if (foundMap.size > 0) {
+        setCdItems((prev) =>
+          prev.map((cd) => {
+            const best = foundMap.get(cd.id);
+            return best
+              ? {
+                  ...cd,
+                  coverUrl: best.coverUrl,
+                  releaseYear: cd.releaseYear || best.releaseYear,
+                }
+              : cd;
+          })
+        );
       }
       showToast(
-        foundCount > 0
-          ? `${foundCount} capa(s) encontrada(s) automaticamente!`
+        foundMap.size > 0
+          ? `${foundMap.size} capa(s) encontrada(s) automaticamente!`
           : 'Nenhuma capa nova encontrada. Verifique os nomes dos álbuns.'
       );
     } finally {
@@ -1217,10 +1245,7 @@ export default function CDImportTrackerApp() {
   };
 
   const handleDuplicateShipment = (shipment: Shipment) => {
-    const now = new Date();
-    const todayIso = `${now.getFullYear()}-${String(
-      now.getMonth() + 1
-    ).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const todayIso = getTodayLocalIsoDate();
     const newShipmentId = `ship-${Date.now()}`;
     const duplicatedShipment: Shipment = {
       ...shipment,
@@ -1757,43 +1782,161 @@ export default function CDImportTrackerApp() {
             </div>
           </div>
 
-          {/* ABAS DE NAVEGAÇÃO PRINCIPAL: VISÃO POR PACOTES vs TODOS OS CDs DA COLEÇÃO */}
-          <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
-            <div className="inline-flex items-center gap-1.5 p-1 rounded-xl bg-slate-950/90 border border-slate-800">
+          {/* ABAS DE NAVEGAÇÃO PRINCIPAL (E SELETOR MOBILE DE MÓDULO) */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
+            {/* Seletor Mobile entre Rastreamento e Radar Top 100 */}
+            <div className="flex md:hidden items-center gap-1.5 p-1 rounded-xl bg-slate-950/90 border border-slate-800 w-full sm:w-auto">
               <button
                 type="button"
-                onClick={() => setActiveMainTab('packages')}
-                className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                  activeMainTab === 'packages'
+                onClick={() => setActiveModule('tracker')}
+                className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                  activeModule === 'tracker'
                     ? 'bg-indigo-600 text-white shadow'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <Package className="w-3.5 h-3.5" />
-                <span>Visão por Pacotes ({shipments.length})</span>
+                <span>Rastreamento</span>
               </button>
-
               <button
                 type="button"
-                onClick={() => setActiveMainTab('collection')}
-                className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                  activeMainTab === 'collection'
-                    ? 'bg-purple-600 text-white shadow'
+                onClick={() => setActiveModule('radar')}
+                className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                  activeModule === 'radar'
+                    ? 'bg-amber-500 text-slate-950 shadow'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Disc3 className="w-3.5 h-3.5" />
-                <span>Todos os CDs da Coleção ({globalStats.totalItems})</span>
+                <Flame className="w-3.5 h-3.5" />
+                <span>Radar Top 100</span>
               </button>
             </div>
+
+            {activeModule === 'tracker' && (
+              <div className="inline-flex items-center gap-1.5 p-1 rounded-xl bg-slate-950/90 border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setActiveMainTab('packages')}
+                  className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                    activeMainTab === 'packages'
+                      ? 'bg-indigo-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Package className="w-3.5 h-3.5" />
+                  <span>Visão por Pacotes ({shipments.length})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveMainTab('collection')}
+                  className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                    activeMainTab === 'collection'
+                      ? 'bg-purple-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Disc3 className="w-3.5 h-3.5" />
+                  <span>
+                    Todos os CDs da Coleção ({globalStats.totalItems})
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
 
-      {/* =====================================================================
-          ABA 2: VISÃO GLOBAL "TODOS OS CDs DA COLEÇÃO"
-          ===================================================================== */}
-      {activeMainTab === 'collection' ? (
+      {/* CORPO COM MENU LATERAL RECOLHÍVEL (SIDEBAR) + CONTEÚDO PRINCIPAL */}
+      <div className="flex-1 flex max-w-[1600px] w-full mx-auto">
+        {/* MENU LATERAL DESKTOP */}
+        <aside
+          className={`hidden md:flex flex-col justify-between border-r border-slate-800/80 bg-slate-900/40 shrink-0 transition-all duration-200 ${
+            isSidebarCollapsed ? 'w-16' : 'w-60'
+          } p-3`}
+        >
+          <div className="space-y-1.5 sticky top-24">
+            <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-slate-800/70">
+              {!isSidebarCollapsed && (
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  Módulos
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsSidebarCollapsed((prev) => !prev)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer mx-auto md:mx-0"
+                title={
+                  isSidebarCollapsed
+                    ? 'Expandir menu lateral'
+                    : 'Recolher menu lateral'
+                }
+              >
+                {isSidebarCollapsed ? (
+                  <PanelLeftOpen className="w-4 h-4" />
+                ) : (
+                  <PanelLeftClose className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveModule('tracker')}
+              title="Rastreamento & Pacotes"
+              className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold transition cursor-pointer ${
+                activeModule === 'tracker'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/25'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/70'
+              }`}
+            >
+              <Package className="w-4 h-4 shrink-0" />
+              {!isSidebarCollapsed && (
+                <div className="text-left truncate">
+                  <div className="truncate">Rastreamento & Pacotes</div>
+                  <div className="text-[10px] font-normal opacity-80 truncate">
+                    Importações, Lotes e Rateio
+                  </div>
+                </div>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveModule('radar')}
+              title="Radar Top 100 (Demanda & Arbitragem)"
+              className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold transition cursor-pointer ${
+                activeModule === 'radar'
+                  ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-lg shadow-amber-500/20'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/70'
+              }`}
+            >
+              <Flame
+                className={`w-4 h-4 shrink-0 ${
+                  activeModule === 'radar'
+                    ? 'text-slate-950'
+                    : 'text-amber-400'
+                }`}
+              />
+              {!isSidebarCollapsed && (
+                <div className="text-left truncate">
+                  <div className="truncate">Radar Top 100</div>
+                  <div className="text-[10px] font-normal opacity-80 truncate">
+                    Discogs + Mercado Livre BR
+                  </div>
+                </div>
+              )}
+            </button>
+          </div>
+        </aside>
+
+        {/* ÁREA DE CONTEÚDO DO MÓDULO ATIVO */}
+        <div className="flex-1 min-w-0 flex flex-col">
+          {activeModule === 'radar' ? (
+            <main className="flex-1 w-full px-3.5 sm:px-6 py-4 sm:py-6">
+              <DemandRadarView />
+            </main>
+          ) : activeMainTab === 'collection' ? (
         <main className="flex-1 max-w-[1600px] w-full mx-auto px-3.5 sm:px-6 py-4 sm:py-6 space-y-4">
           <div className="rounded-2xl bg-slate-900/60 border border-slate-800/90 p-4 sm:p-5 space-y-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -1896,16 +2039,11 @@ export default function CDImportTrackerApp() {
                       >
                         <div className="flex items-start gap-3">
                           <div className="h-14 w-14 rounded-xl bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0">
-                            {item.coverUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={item.coverUrl}
-                                alt={item.albumTitle}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <Disc3 className="w-6 h-6 text-slate-600" />
-                            )}
+                            <AlbumCover
+                              src={item.coverUrl}
+                              alt={item.albumTitle}
+                              iconClassName="w-6 h-6 text-slate-600"
+                            />
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-2">
@@ -1972,16 +2110,11 @@ export default function CDImportTrackerApp() {
                             <td className="py-3 px-4">
                               <div className="flex items-center gap-3">
                                 <div className="h-11 w-11 rounded-lg bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0">
-                                  {item.coverUrl ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
-                                      src={item.coverUrl}
-                                      alt={item.albumTitle}
-                                      className="h-full w-full object-cover"
-                                    />
-                                  ) : (
-                                    <Disc3 className="w-5 h-5 text-slate-600" />
-                                  )}
+                                  <AlbumCover
+                                    src={item.coverUrl}
+                                    alt={item.albumTitle}
+                                    iconClassName="w-5 h-5 text-slate-600"
+                                  />
                                 </div>
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-1.5">
@@ -2974,16 +3107,11 @@ export default function CDImportTrackerApp() {
                                   }}
                                   className="relative h-14 w-14 rounded-xl bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0 shadow"
                                 >
-                                  {item.coverUrl ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
-                                      src={item.coverUrl}
-                                      alt={item.albumTitle}
-                                      className="h-full w-full object-cover"
-                                    />
-                                  ) : (
-                                    <Disc3 className="w-6 h-6 text-slate-600" />
-                                  )}
+                                  <AlbumCover
+                                    src={item.coverUrl}
+                                    alt={item.albumTitle}
+                                    iconClassName="w-6 h-6 text-slate-600"
+                                  />
                                 </button>
 
                                 {/* Artista, Álbum e Badges */}
@@ -3214,16 +3342,11 @@ export default function CDImportTrackerApp() {
                                         title="Clique para trocar ou buscar a capa deste álbum"
                                         className="group relative h-12 w-12 rounded-lg bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0 shadow hover:border-indigo-400 transition"
                                       >
-                                        {item.coverUrl ? (
-                                          // eslint-disable-next-line @next/next/no-img-element
-                                          <img
-                                            src={item.coverUrl}
-                                            alt={item.albumTitle}
-                                            className="h-full w-full object-cover"
-                                          />
-                                        ) : (
-                                          <Disc3 className="w-5 h-5 text-slate-600 group-hover:text-indigo-400 transition" />
-                                        )}
+                                        <AlbumCover
+                                          src={item.coverUrl}
+                                          alt={item.albumTitle}
+                                          iconClassName="w-5 h-5 text-slate-600 group-hover:text-indigo-400 transition"
+                                        />
                                       </button>
 
                                       <div className="min-w-0 flex-1">
@@ -3460,6 +3583,8 @@ export default function CDImportTrackerApp() {
           </section>
         </main>
       )}
+        </div>
+      </div>
 
       {/* POP-UP 1: MODAL ÚNICO DE CRIAR / EDITAR PACOTE E SEUS CDs */}
       <ShipmentModal

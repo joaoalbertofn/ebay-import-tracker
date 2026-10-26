@@ -112,23 +112,27 @@ async function main() {
   }
 
   if (action === 'pull') {
-    const rawCloud = await kvGet(kvUrl, kvToken, userKey);
-    if (!rawCloud) {
-      console.log('⚠️ Nenhum dado encontrado na nuvem para a chave:', userKey);
-      return;
+    try {
+      const rawCloud = await kvGet(kvUrl, kvToken, userKey);
+      if (!rawCloud) {
+        console.log('⚠️ Nenhum dado encontrado na nuvem para a chave:', userKey);
+        return;
+      }
+      const parsed = JSON.parse(rawCloud);
+      const serialized = JSON.stringify(parsed, null, 2);
+
+      await fs.mkdir(USERS_DIR, { recursive: true });
+      await fs.writeFile(userFile, serialized, 'utf-8');
+      await fs.writeFile(LOCAL_DB_FILE, serialized, 'utf-8');
+
+      console.log(`✅ PULL concluído! Arquivos locais sincronizados com a nuvem.`);
+      console.log(`   👤 Usuário: ${userId}`);
+      console.log(`   📦 Pacotes: ${parsed.shipments?.length || 0}`);
+      console.log(`   💿 CDs:     ${parsed.cdItems?.length || 0}`);
+      console.log(`   🕒 Updated: ${parsed.updatedAt || parsed.exportedAt || 'N/A'}`);
+    } catch (err) {
+      console.warn(`⚠️ Aviso no pull do Upstash (usando cache local): ${err.message}`);
     }
-    const parsed = JSON.parse(rawCloud);
-    const serialized = JSON.stringify(parsed, null, 2);
-
-    await fs.mkdir(USERS_DIR, { recursive: true });
-    await fs.writeFile(userFile, serialized, 'utf-8');
-    await fs.writeFile(LOCAL_DB_FILE, serialized, 'utf-8');
-
-    console.log(`✅ PULL concluído! Arquivos locais sincronizados com a nuvem.`);
-    console.log(`   👤 Usuário: ${userId}`);
-    console.log(`   📦 Pacotes: ${parsed.shipments?.length || 0}`);
-    console.log(`   💿 CDs:     ${parsed.cdItems?.length || 0}`);
-    console.log(`   🕒 Updated: ${parsed.updatedAt || parsed.exportedAt || 'N/A'}`);
     return;
   }
 
