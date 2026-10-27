@@ -7,26 +7,30 @@ Aplicação web **Single Page Application (SPA)** desenvolvida com **Next.js 16 
 ## ✨ Funcionalidades Principais
 
 ### 1. Arquitetura Master / Detail Responsiva (Desktop & Mobile)
-- **Coluna Esquerda (Master — Lista de Pacotes):**
-  - Exibe todos os pacotes/lotes cadastrados com **Nome Gerado Automaticamente**, **Badge de Status**, **Modo de Consolidação**, **Quantidade de CDs** e **Custo Total em BRL**.
-  - **6 Status do Fluxo de Importação:**
-    - `🛒 Comprado (Pacote Único)`
-    - `📍 No Redirecionador (Avulso)`
-    - `📦 Já Consolidado (No Redirecionador)`
-    - `✈️ Em Trânsito`
-    - `🧾 Tributado (Receita/MG)`
-    - `✅ Entregue`
-  - **Busca Global e Filtros Rápidos:** Filtra instantaneamente pacotes por nome, código de rastreio (local ou internacional), artista, título do álbum ou nome do lote, além de filtros por status.
-- **Coluna Direita (Detail — Detalhes do Pacote e Lista de CDs):**
-  - **KPIs Globais no Topo:** Total investido em `BRL`, total de álbuns/box sets (e contagem de discos físicos) e média real por CD.
-  - **Painel de 4 Cards de Memória de Cálculo:**
-    1. **Soma dos CDs (Custo Direto):** Valor original na moeda estrangeira e convertido para `BRL`.
-    2. **Custos Indiretos:** Soma de Fretes (Local + Redirecionador + Internacional) e Taxa de Importação (`BRL`).
-    3. **Rateio Unitário / CD:** Valor exato de custos indiretos adicionado a cada CD do pacote.
-    4. **Total do Pacote:** Custo final consolidado da caixa e média por CD.
-  - **Visualização Adaptativa Sem Scroll Horizontal:**
-    - **Desktop (`md+`):** Tabela enxuta de 5 colunas (`Capa, Artista & Álbum`, `Valor do CD`, `+ Rateio Unit.`, `Custo Final Real` e `Ações`), com badges compactos de origem de lote e tipo de embalagem (`Jewel Case`, `Somente Encarte`, `Digipack`, `CD Duplo`, `Box Set`) integrados ao título e conversão `Moeda Original → BRL` empilhada.
-    - **Mobile:** Cards otimizados com navegação fluida entre lista de pacotes e detalhes.
+- **Aba "Visão por Pacotes" (Master / Detail):**
+  - **Coluna Esquerda (Master — Lista de Pacotes):**
+    - Exibe todos os pacotes/lotes cadastrados com **Nome Gerado Automaticamente** (ou personalizado com trava), **Peso em kg**, **Badge de Status**, **Modo de Consolidação**, **Quantidade de CDs** e **Custo Total em BRL**.
+    - **6 Status do Fluxo de Importação:**
+      - `🛒 Comprado (Pacote Único)`
+      - `📍 No Redirecionador (Avulso)`
+      - `📦 Já Consolidado (No Redirecionador)`
+      - `✈️ Em Trânsito`
+      - `🧾 Tributado (Receita/MG)`
+      - `✅ Entregue`
+    - **Busca de Pacotes e Filtros Rápidos:** Filtra instantaneamente pacotes por nome, código de rastreio (local ou internacional), artista, título do álbum ou nome do lote, além de filtros por status.
+    - **Atalho Direto para Correios ("Minhas Importações"):** Ao clicar no código de rastreio internacional, copia o código automaticamente para a área de transferência e abre o portal dos Correios (`#track=...`).
+  - **Coluna Direita (Detail — Detalhes do Pacote e Lista de CDs):**
+    - **KPIs Globais no Topo:** Total investido em `BRL`, total de álbuns/box sets (e contagem de discos físicos) e média real por CD.
+    - **Painel de 4 Cards de Memória de Cálculo:**
+      1. **Soma dos CDs (Custo Direto):** Valor original na moeda estrangeira e convertido para `BRL`.
+      2. **Custos Indiretos:** Soma de Fretes (Local + Redirecionador + Internacional) e Taxa de Importação (`BRL`).
+      3. **Rateio Unitário / CD:** Valor exato de custos indiretos adicionado a cada CD do pacote.
+      4. **Total do Pacote:** Custo final consolidado da caixa e média por CD.
+    - **Visualização Adaptativa Sem Scroll Horizontal:**
+      - **Desktop (`md+`):** Tabela enxuta de 5 colunas (`Capa, Artista & Álbum`, `Valor do CD`, `+ Rateio Unit.`, `Custo Final Real` e `Ações`), com badges compactos de origem de lote e tipo de embalagem (`Jewel Case`, `Somente Encarte`, `Digipack`, `CD Duplo`, `Box Set`) integrados ao título e conversão `Moeda Original → BRL` empilhada.
+      - **Mobile:** Cards otimizados com navegação fluida entre lista de pacotes e detalhes.
+- **Aba "Todos os CDs da Coleção" (Visão Global):**
+  - Consolida todos os CDs importados em uma única tabela comparativa com **busca dedicada exclusivamente por nome do artista ou do álbum**, filtro por status do pacote e ordenação por Artista, Álbum, Menor/Maior Custo Final ou Mais Recentes.
 
 ### 2. Cadastro Rápido & Consolidação Inteligente no Redirecionador
 - **Identificação Automática de Pacotes e Data Padrão:**
@@ -63,6 +67,9 @@ Aplicação web **Single Page Application (SPA)** desenvolvida com **Next.js 16 
 - **Cotação Comercial em Tempo Real:**
   - Integração com `AwesomeAPI` (e fallback para `ExchangeRate-API`) para `GBP`, `USD`, `EUR`, `JPY` e `BRL`.
 
+### 5. Radar Top 100 Demanda & Arbitragem (`Discogs` + `Mercado Livre BR`)
+- **Módulo dedicado de inteligência de mercado:** Consulta métricas de demanda real no **Discogs** (*Want*, *Have*, *Índice de Escassez Want/Have* e *Menor Preço Global*) combinadas com anúncios ativos e preços no **Mercado Livre Brasil** para identificar oportunidades de arbitragem e raridades em CD.
+
 ---
 
 ## 📂 Estrutura do Projeto
@@ -75,19 +82,26 @@ Aplicação web **Single Page Application (SPA)** desenvolvida com **Next.js 16 
 │   └── db-sync.mjs                   # CLI de sincronização direta entre JSON local e Upstash Redis
 ├── src/
 │   ├── app/
-│   │   ├── api/tracker/route.ts      # API Route (GET/POST) autenticada com suporte a Upstash Redis e JSON local
+│   │   ├── api/
+│   │   │   ├── demand/               # Rotas de API do Radar de Demanda (top100, lookup, mercadolivre)
+│   │   │   └── tracker/route.ts      # API Route (GET/POST) autenticada com suporte a Upstash Redis e JSON local
 │   │   ├── globals.css               # Estilos globais e importação do Tailwind CSS v4
 │   │   ├── layout.tsx                # Root Layout com ClerkProvider (pt-BR, dark mode)
 │   │   └── page.tsx                  # Página principal que renderiza o CDImportTrackerApp
 │   ├── components/
-│   │   ├── CDImportTrackerApp.tsx    # Componente principal SPA (Dashboard Master/Detail, estado e ações)
-│   │   ├── ShipmentModal.tsx         # Modal de criação/edição de pacotes, consolidação e lançamento de CDs
-│   │   └── CDModal.tsx               # Modal de adição/edição individual ou em lote (Batch) de CDs e capas
+│   │   ├── AlbumCover.tsx            # Componente de exibição de capa de álbum com fallback visual
+│   │   ├── CDImportTrackerApp.tsx    # Componente principal SPA (Dashboard Master/Detail, Coleção Global e Radar)
+│   │   ├── CDModal.tsx               # Modal de adição/edição individual ou em lote (Batch) de CDs e capas
+│   │   ├── DemandRadarView.tsx       # Módulo Radar Top 100 Demanda & Arbitragem (Discogs + Mercado Livre BR)
+│   │   └── ShipmentModal.tsx         # Modal de criação/edição de pacotes, consolidação e lançamento de CDs
 │   ├── lib/
 │   │   ├── calculations.ts           # Cálculos de rateio, geração automática de nomes, formatação e câmbio
 │   │   ├── coverArt.ts               # Integração com iTunes API e MusicBrainz para busca de capas
-│   │   └── seedData.ts               # Dados iniciais de exemplo (fallback inicial)
+│   │   ├── discogsDemand.ts          # Integração com Discogs API e cálculo de demanda/escassez
+│   │   ├── seedData.ts               # Dados iniciais de exemplo (fallback inicial)
+│   │   └── trackerStorage.ts         # Persistência híbrida (Upstash Redis + JSON local por usuário)
 │   ├── types/
+│   │   ├── demand.ts                 # Interfaces TypeScript do módulo Radar de Demanda
 │   │   └── tracker.ts                # Interfaces TypeScript (Shipment, CDItem, ShipmentCalculationSummary, etc.)
 │   └── proxy.ts                      # Middleware de autenticação do Clerk (Next.js 16)
 ├── next.config.ts                    # Configuração do Next.js
@@ -99,7 +113,7 @@ Aplicação web **Single Page Application (SPA)** desenvolvida com **Next.js 16 
 
 ## ⚙️ Variáveis de Ambiente (`.env.local`)
 
-Crie um arquivo `.env.local` na raiz do projeto com as chaves do **Clerk** e, opcionalmente, do **Upstash Redis / Vercel KV** para sincronização em nuvem:
+Crie um arquivo `.env.local` na raiz do projeto com as chaves do **Clerk** e, opcionalmente, do **Upstash Redis / Vercel KV** e **Discogs**:
 
 ```env
 # Autenticação Clerk
@@ -109,6 +123,9 @@ CLERK_SECRET_KEY=sk_test_...
 # Persistência em Nuvem (Upstash Redis / Vercel KV)
 KV_REST_API_URL=https://...upstash.io
 KV_REST_API_TOKEN=...
+
+# Token opcional da API do Discogs (Radar de Demanda)
+DISCOGS_TOKEN=...
 ```
 
 ---

@@ -797,10 +797,7 @@ export default function CDImportTrackerApp() {
       if (!q) return true;
       return (
         item.artist.toLowerCase().includes(q) ||
-        item.albumTitle.toLowerCase().includes(q) ||
-        shipment.name.toLowerCase().includes(q) ||
-        (item.localTrackingCode || '').toLowerCase().includes(q) ||
-        (shipment.internationalTrackingCode || '').toLowerCase().includes(q)
+        item.albumTitle.toLowerCase().includes(q)
       );
     });
 
@@ -1957,7 +1954,7 @@ export default function CDImportTrackerApp() {
                   <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    placeholder="Filtrar por artista, álbum ou pacote..."
+                    placeholder="Filtrar por artista ou álbum..."
                     value={collectionSearch}
                     onChange={(e) => setCollectionSearch(e.target.value)}
                     className="w-full rounded-xl bg-slate-950 border border-slate-800 pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:border-purple-500 focus:outline-none"
