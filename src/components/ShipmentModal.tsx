@@ -18,8 +18,13 @@ import {
 } from '@/lib/calculations';
 import {
   AlbumCoverCandidate,
+  fetchBestAlbumCover,
   resolveCoverCycleOrFetch,
 } from '@/lib/coverArt';
+import {
+  EbayImportResult,
+  extractEbayOrderInfo,
+} from '@/lib/ebayImport';
 import { AlbumCover } from '@/components/AlbumCover';
 import {
   X,
@@ -45,6 +50,8 @@ import {
   Unlock,
   Scale,
   RotateCcw,
+  ExternalLink,
+  Link2,
 } from 'lucide-react';
 
 const STORAGE_KEY_FEES = 'cd_import_tracker_forwarder_fees_v1';
@@ -64,6 +71,7 @@ export interface InitialCDEntry {
   discCount?: number;
   coverUrl?: string;
   releaseYear?: string;
+  ebayListingUrl?: string;
   isFetchingCover?: boolean;
   coverCandidates?: AlbumCoverCandidate[];
   coverCandidateIndex?: number;
@@ -81,6 +89,7 @@ export interface InitialBundlePayload {
     discCount?: number;
     coverUrl?: string;
     releaseYear?: string;
+    ebayListingUrl?: string;
   }[];
 }
 
@@ -180,6 +189,13 @@ export function ShipmentModal({
   const [isTaxEstimated, setIsTaxEstimated] = useState<boolean>(false);
   const [internationalTrackingCode, setInternationalTrackingCode] =
     useState('');
+  const [ebayOrderInput, setEbayOrderInput] = useState('');
+  const [ebayQuickPasteInput, setEbayQuickPasteInput] = useState('');
+  const [isParsingEbay, setIsParsingEbay] = useState(false);
+  const [ebayImportFeedback, setEbayImportFeedback] = useState<{
+    type: 'success' | 'warning';
+    text: string;
+  } | null>(null);
   const [notes, setNotes] = useState('');
 
   // Campos para lançar/editar CDs direto no modal do pacote
@@ -251,6 +267,8 @@ export function ShipmentModal({
     setDiscardedExistingCdIds(new Set());
     setConsolidationAction('unpack_and_repack');
     setIsForwarderExpandedManual(false);
+    setEbayQuickPasteInput('');
+    setEbayImportFeedback(null);
 
     if (editingShipment) {
       setName(editingShipment.name);
@@ -274,6 +292,9 @@ export function ShipmentModal({
       setIsTaxEstimated(Boolean(editingShipment.isTaxEstimated));
       setInternationalTrackingCode(
         editingShipment.internationalTrackingCode || ''
+      );
+      setEbayOrderInput(
+        editingShipment.ebayOrderUrl || editingShipment.ebayOrderId || ''
       );
       setNotes(editingShipment.notes || '');
 
@@ -301,6 +322,7 @@ export function ShipmentModal({
             discCount: item.discCount || 1,
             coverUrl: item.coverUrl,
             releaseYear: item.releaseYear,
+            ebayListingUrl: item.ebayListingUrl,
           }))
         );
       } else {
@@ -326,6 +348,7 @@ export function ShipmentModal({
       setCustomsTaxBrl('0');
       setIsTaxEstimated(false);
       setInternationalTrackingCode('');
+      setEbayOrderInput('');
       setNotes('');
       setBundleTotalValue('');
       setLocalTrackingCode('');
@@ -336,6 +359,143 @@ export function ShipmentModal({
       handleFetchLiveRate('GBP');
     }
   }, [isOpen, editingShipment, editingShipmentItems]);
+
+  const handleImportFromEbay = async () => {
+    const raw = ebayQuickPasteInput.trim();
+    if (!raw) return;
+
+    setIsParsingEbay(true);
+    setEbayImportFeedback(null);
+
+    try {
+      const res = await fetch('/api/ebay/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: raw }),
+      });
+
+      const data: EbayImportResult & { error?: string } = await res.json();
+
+      if (!res.ok || data.error) {
+        setEbayImportFeedback({
+          type: 'warning',
+          text: data.error || 'Não foi possível ler os dados informados.',
+        });
+        return;
+      }
+
+      if (data.ebayOrderUrl || data.ebayOrderId) {
+        setEbayOrderInput(data.ebayOrderUrl || data.ebayOrderId || '');
+      }
+
+      if (data.currency && data.currency !== currency) {
+        handleCurrencyChange(data.currency);
+      }
+
+      if (data.internalShipping !== undefined && data.internalShipping >= 0) {
+        setInternalShipping(String(Number(data.internalShipping.toFixed(2))));
+      }
+
+      if (data.localTrackingCode) {
+        setLocalTrackingCode(data.localTrackingCode.toUpperCase());
+      }
+
+      if (data.items && data.items.length > 0) {
+        const importedEntries: InitialCDEntry[] = data.items.map((item) => ({
+          artist: item.artist || '',
+          albumTitle: item.albumTitle || item.rawTitle || '',
+          unitPrice:
+            item.unitPrice !== undefined && item.unitPrice >= 0
+              ? String(Number(item.unitPrice.toFixed(2)))
+              : '',
+          discCount: item.discCount || 1,
+          coverUrl: item.coverUrl,
+          releaseYear: item.releaseYear,
+          ebayListingUrl: item.ebayListingUrl,
+        }));
+
+        // Se a primeira linha atual estiver vazia, substitui; caso contrário, adiciona ao final
+        const isCurrentEmpty =
+          cdEntries.length === 1 &&
+          !cdEntries[0].id &&
+          !cdEntries[0].artist.trim() &&
+          !cdEntries[0].albumTitle.trim() &&
+          !cdEntries[0].unitPrice.trim();
+
+        const nextEntries = isCurrentEmpty
+          ? importedEntries
+          : [...cdEntries, ...importedEntries];
+
+        setCdEntries(nextEntries);
+
+        const sumPrices = nextEntries.reduce(
+          (acc, e) => acc + Math.max(0, parseFloat(e.unitPrice) || 0),
+          0
+        );
+        if (sumPrices > 0) {
+          setBundleTotalValue(String(Number(sumPrices.toFixed(2))));
+        }
+
+        // Busca capas de álbum em alta resolução (iTunes/MusicBrainz) em background para os itens importados
+        nextEntries.forEach((entry, idx) => {
+          if (entry.artist.trim() || entry.albumTitle.trim()) {
+            fetchBestAlbumCover(entry.artist, entry.albumTitle)
+              .then((best) => {
+                if (best?.coverUrl) {
+                  setCdEntries((curr) =>
+                    curr.map((row, rIdx) =>
+                      rIdx === idx
+                        ? {
+                            ...row,
+                            coverUrl: best.coverUrl,
+                            releaseYear: row.releaseYear || best.releaseYear,
+                          }
+                        : row
+                    )
+                  );
+                }
+              })
+              .catch(() => {
+                // mantém a foto do anúncio se houver
+              });
+          }
+        });
+
+        setEbayQuickPasteInput('');
+        setEbayImportFeedback({
+          type: 'success',
+          text: `${importedEntries.length} ${
+            importedEntries.length === 1 ? 'CD importado' : 'CDs importados'
+          }${
+            data.ebayOrderId ? ` + Pedido #${data.ebayOrderId} vinculado` : ''
+          }! Confira os campos abaixo.`,
+        });
+      } else if (data.warnings && data.warnings.length > 0) {
+        setEbayImportFeedback({
+          type: 'warning',
+          text: data.warnings[0],
+        });
+      } else if (data.ebayOrderId) {
+        setEbayQuickPasteInput('');
+        setEbayImportFeedback({
+          type: 'success',
+          text: `Pedido #${data.ebayOrderId} vinculado ao pacote!`,
+        });
+      } else {
+        setEbayImportFeedback({
+          type: 'warning',
+          text: 'Nenhum CD ou link do eBay foi identificado. Cole o link do anúncio (ebay.com/itm/...), o link do pedido ou o texto copiado da tela do pedido.',
+        });
+      }
+    } catch {
+      setEbayImportFeedback({
+        type: 'warning',
+        text: 'Falha ao consultar dados do eBay. Verifique o link ou texto colado.',
+      });
+    } finally {
+      setIsParsingEbay(false);
+    }
+  };
 
   const handleCurrencyChange = (newCurr: CurrencyCode) => {
     setCurrency(newCurr);
@@ -760,6 +920,14 @@ export function ShipmentModal({
     const fallbackEqualPrice =
       validCdEntries.length > 0 ? parsedBundleVal / validCdEntries.length : 0;
 
+    const resolvedOrderInfo = extractEbayOrderInfo(ebayOrderInput);
+    const finalOrderId = resolvedOrderInfo.ebayOrderId || undefined;
+    const finalOrderUrl =
+      resolvedOrderInfo.ebayOrderUrl ||
+      (ebayOrderInput.trim().startsWith('http')
+        ? ebayOrderInput.trim()
+        : undefined);
+
     const initialBundle: InitialBundlePayload | undefined =
       hasAnyNewCdFilled || editingShipment
         ? {
@@ -779,6 +947,7 @@ export function ShipmentModal({
                 discCount: entry.discCount || 1,
                 coverUrl: entry.coverUrl,
                 releaseYear: entry.releaseYear,
+                ebayListingUrl: entry.ebayListingUrl,
               };
             }),
           }
@@ -845,6 +1014,8 @@ export function ShipmentModal({
         customsTaxBrl: Math.max(0, parseFloat(customsTaxBrl) || 0),
         isTaxEstimated,
         internationalTrackingCode: internationalTrackingCode.trim(),
+        ebayOrderId: finalOrderId,
+        ebayOrderUrl: finalOrderUrl,
         notes: notes.trim(),
       },
       editingShipment?.id,
@@ -987,6 +1158,63 @@ export function ShipmentModal({
                 </button>
               </div>
 
+              {/* ⚡ Preenchimento Rápido do eBay (Link do Anúncio, Link do Pedido ou Texto do Pedido) */}
+              <div className="rounded-xl bg-slate-950/85 border border-indigo-500/35 p-3 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                    ⚡ Importar Rápido do eBay (Anúncio ou Pedido)
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Cole link(s) <code className="text-indigo-300">ebay.../itm/...</code>, link <code className="text-indigo-300">order.ebay.com/...</code> ou texto copiado do pedido
+                  </span>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <textarea
+                    rows={1}
+                    placeholder="Cole aqui o link do anúncio (ebay.co.uk/itm/...), link do pedido ou texto copiado do pedido..."
+                    value={ebayQuickPasteInput}
+                    onChange={(e) => setEbayQuickPasteInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleImportFromEbay();
+                      }
+                    }}
+                    className="flex-1 rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-400 focus:outline-none resize-y min-h-[38px]"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleImportFromEbay}
+                    disabled={isParsingEbay || !ebayQuickPasteInput.trim()}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 px-4 py-2 text-xs font-semibold text-white transition shrink-0"
+                  >
+                    {isParsingEbay ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Lendo eBay...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Preencher Dados
+                      </>
+                    )}
+                  </button>
+                </div>
+                {ebayImportFeedback && (
+                  <p
+                    className={`text-[11px] px-2.5 py-1.5 rounded-lg border ${
+                      ebayImportFeedback.type === 'success'
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                        : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                    }`}
+                  >
+                    {ebayImportFeedback.text}
+                  </p>
+                )}
+              </div>
+
               {/* Linha de Moeda/Câmbio + Valor Total, Qtd de CDs e Rastreio Local */}
               <div className="grid grid-cols-2 sm:grid-cols-12 gap-3">
                 {/* Moeda e Câmbio Automático */}
@@ -1076,6 +1304,44 @@ export function ShipmentModal({
                       setLocalTrackingCode(e.target.value.toUpperCase())
                     }
                     className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-base sm:text-sm text-white font-mono uppercase placeholder-slate-600 focus:border-purple-400 focus:outline-none"
+                  />
+                </div>
+
+                {/* Campo dedicado para Link ou Número do Pedido eBay */}
+                <div className="col-span-2 sm:col-span-12">
+                  <label className="block text-xs text-slate-300 mb-1 flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1">
+                      <Link2 className="w-3.5 h-3.5 text-sky-400" /> Link ou Nº do Pedido no eBay (Opcional)
+                    </span>
+                    {(() => {
+                      const info = extractEbayOrderInfo(ebayOrderInput);
+                      const href =
+                        info.ebayOrderUrl ||
+                        (ebayOrderInput.trim().startsWith('http')
+                          ? ebayOrderInput.trim()
+                          : '');
+                      if (!href) return null;
+                      return (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] font-mono text-sky-300 hover:text-sky-200 underline"
+                        >
+                          {info.ebayOrderId
+                            ? `Abrir Pedido #${info.ebayOrderId}`
+                            : 'Abrir Pedido no eBay'}
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      );
+                    })()}
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: https://order.ebay.com/ord/show?orderId=04-15363-94135... ou apenas 04-15363-94135"
+                    value={ebayOrderInput}
+                    onChange={(e) => setEbayOrderInput(e.target.value)}
+                    className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-white font-mono placeholder-slate-600 focus:border-purple-400 focus:outline-none"
                   />
                 </div>
               </div>

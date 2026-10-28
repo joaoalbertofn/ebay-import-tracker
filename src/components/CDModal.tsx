@@ -9,9 +9,15 @@ import {
 } from '@/lib/calculations';
 import {
   AlbumCoverCandidate,
+  fetchBestAlbumCover,
   resolveCoverCycleOrFetch,
   searchAlbumCoverCandidates,
 } from '@/lib/coverArt';
+import {
+  EbayImportResult,
+  extractEbayListingUrls,
+  extractEbayOrderInfo,
+} from '@/lib/ebayImport';
 import { AlbumCover } from '@/components/AlbumCover';
 import {
   X,
@@ -26,6 +32,8 @@ import {
   Loader2,
   Check,
   RefreshCw,
+  ExternalLink,
+  Link2,
 } from 'lucide-react';
 
 interface CDModalProps {
@@ -56,6 +64,7 @@ interface BatchAlbumEntry {
   discCount: number;
   coverUrl?: string;
   releaseYear?: string;
+  ebayListingUrl?: string;
   isFetchingCover?: boolean;
   coverCandidates?: AlbumCoverCandidate[];
   coverCandidateIndex?: number;
@@ -102,16 +111,26 @@ export function CDModal({
   // Campo de Valor Unitário Direto (quando não é bundle)
   const [directUnitValue, setDirectUnitValue] = useState<string>('');
 
-  // Frete local e Rastreio local (Vendedor -> Redirecionador)
+  // Frete local, Rastreio local e Links eBay
   const [bundleInternalShipping, setBundleInternalShipping] =
     useState<string>('0');
   const [localTrackingCode, setLocalTrackingCode] = useState('');
+  const [ebayListingUrl, setEbayListingUrl] = useState('');
+  const [ebayOrderInput, setEbayOrderInput] = useState('');
+  const [ebayQuickPasteInput, setEbayQuickPasteInput] = useState('');
+  const [isParsingEbay, setIsParsingEbay] = useState(false);
+  const [ebayImportFeedback, setEbayImportFeedback] = useState<{
+    type: 'success' | 'warning';
+    text: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
 
     setCoverCandidates([]);
     setCoverSearchMessage('');
+    setEbayQuickPasteInput('');
+    setEbayImportFeedback(null);
 
     if (editingItem) {
       setArtist(editingItem.artist);
@@ -137,6 +156,10 @@ export function CDModal({
         String(editingItem.bundleInternalShipping || 0)
       );
       setLocalTrackingCode(editingItem.localTrackingCode || '');
+      setEbayListingUrl(editingItem.ebayListingUrl || '');
+      setEbayOrderInput(
+        editingItem.ebayOrderUrl || editingItem.ebayOrderId || ''
+      );
       setEnableBatchCreate(false);
       setSyncBundleSiblings(true);
     } else {
@@ -153,6 +176,8 @@ export function CDModal({
       setDirectUnitValue('');
       setBundleInternalShipping('0');
       setLocalTrackingCode('');
+      setEbayListingUrl('');
+      setEbayOrderInput('');
       setEnableBatchCreate(false);
       setBatchEntries([
         { artist: '', albumTitle: '', discCount: 1 },
@@ -316,6 +341,143 @@ export function CDModal({
     }
   };
 
+  const handleImportFromEbayInCDModal = async () => {
+    const raw = ebayQuickPasteInput.trim();
+    if (!raw) return;
+
+    setIsParsingEbay(true);
+    setEbayImportFeedback(null);
+
+    try {
+      const res = await fetch('/api/ebay/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: raw }),
+      });
+
+      const data: EbayImportResult & { error?: string } = await res.json();
+
+      if (!res.ok || data.error) {
+        setEbayImportFeedback({
+          type: 'warning',
+          text: data.error || 'Não foi possível ler os dados informados.',
+        });
+        return;
+      }
+
+      if (data.ebayOrderUrl || data.ebayOrderId) {
+        setEbayOrderInput(data.ebayOrderUrl || data.ebayOrderId || '');
+      }
+
+      if (data.internalShipping !== undefined && data.internalShipping >= 0) {
+        setBundleInternalShipping(String(Number(data.internalShipping.toFixed(2))));
+      }
+
+      if (data.localTrackingCode) {
+        setLocalTrackingCode(data.localTrackingCode.toUpperCase());
+      }
+
+      if (data.items && data.items.length === 1) {
+        const item = data.items[0];
+        if (!editingItem) setIsBundle(false);
+        setArtist(item.artist || '');
+        setAlbumTitle(item.albumTitle || item.rawTitle || '');
+        setDiscCount(String(item.discCount || 1));
+        if (item.unitPrice !== undefined && item.unitPrice >= 0) {
+          setDirectUnitValue(String(Number(item.unitPrice.toFixed(2))));
+        }
+        if (item.releaseYear) setReleaseYear(item.releaseYear);
+        if (item.coverUrl) setCoverUrl(item.coverUrl);
+        if (item.ebayListingUrl) setEbayListingUrl(item.ebayListingUrl);
+
+        // Busca capa oficial no iTunes/MusicBrainz
+        if (item.artist || item.albumTitle) {
+          searchAlbumCoverCandidates(item.artist, item.albumTitle)
+            .then((cands) => {
+              if (cands.length > 0) {
+                setCoverCandidates(cands);
+                setCoverUrl(cands[0].coverUrl);
+                if (cands[0].releaseYear) setReleaseYear(cands[0].releaseYear);
+              }
+            })
+            .catch(() => {});
+        }
+
+        setEbayQuickPasteInput('');
+        setEbayImportFeedback({
+          type: 'success',
+          text: `CD "${item.artist ? `${item.artist} - ` : ''}${item.albumTitle}" preenchido automaticamente!`,
+        });
+      } else if (data.items && data.items.length > 1 && !editingItem) {
+        setIsBundle(true);
+        setEnableBatchCreate(true);
+        setBundleTotalQuantity(String(data.items.length));
+        const sumPrices = data.items.reduce(
+          (acc, i) => acc + (i.unitPrice || 0),
+          0
+        );
+        if (sumPrices > 0) {
+          setBundleTotalValue(String(Number(sumPrices.toFixed(2))));
+        }
+        const entries: BatchAlbumEntry[] = data.items.map((item) => ({
+          artist: item.artist || '',
+          albumTitle: item.albumTitle || item.rawTitle || '',
+          discCount: item.discCount || 1,
+          coverUrl: item.coverUrl,
+          releaseYear: item.releaseYear,
+          ebayListingUrl: item.ebayListingUrl,
+        }));
+        setBatchEntries(entries);
+
+        entries.forEach((entry, idx) => {
+          if (entry.artist || entry.albumTitle) {
+            fetchBestAlbumCover(entry.artist, entry.albumTitle)
+              .then((best) => {
+                if (best?.coverUrl) {
+                  setBatchEntries((curr) =>
+                    curr.map((row, rIdx) =>
+                      rIdx === idx
+                        ? {
+                            ...row,
+                            coverUrl: best.coverUrl,
+                            releaseYear: row.releaseYear || best.releaseYear,
+                          }
+                        : row
+                    )
+                  );
+                }
+              })
+              .catch(() => {});
+          }
+        });
+
+        setEbayQuickPasteInput('');
+        setEbayImportFeedback({
+          type: 'success',
+          text: `${entries.length} CDs importados em modo Lote/Bundle!`,
+        });
+      } else if (data.warnings && data.warnings.length > 0) {
+        setEbayImportFeedback({
+          type: 'warning',
+          text: data.warnings[0],
+        });
+      } else if (data.ebayOrderId) {
+        setEbayQuickPasteInput('');
+        setEbayImportFeedback({
+          type: 'success',
+          text: `Pedido #${data.ebayOrderId} vinculado!`,
+        });
+      }
+    } catch {
+      setEbayImportFeedback({
+        type: 'warning',
+        text: 'Erro ao consultar dados do eBay.',
+      });
+    } finally {
+      setIsParsingEbay(false);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -327,6 +489,19 @@ export function CDModal({
     const unitInternalShippingNum = isBundle
       ? Number((localShippingNum / parsedBundleQty).toFixed(4))
       : localShippingNum;
+
+    const resolvedOrderInfo = extractEbayOrderInfo(ebayOrderInput);
+    const finalOrderId = resolvedOrderInfo.ebayOrderId || undefined;
+    const finalOrderUrl =
+      resolvedOrderInfo.ebayOrderUrl ||
+      (ebayOrderInput.trim().startsWith('http') &&
+      !extractEbayListingUrls(ebayOrderInput).length
+        ? ebayOrderInput.trim()
+        : undefined);
+    const finalListingUrl =
+      ebayListingUrl.trim() ||
+      extractEbayListingUrls(ebayOrderInput)[0] ||
+      undefined;
 
     if (isBundle && enableBatchCreate && !editingItem) {
       const validEntries = batchEntries.filter(
@@ -358,6 +533,9 @@ export function CDModal({
           bundleInternalShipping: localShippingNum,
           unitInternalShipping: batchUnitShip,
           localTrackingCode: localTrackingCode.trim().toUpperCase(),
+          ebayOrderId: finalOrderId,
+          ebayOrderUrl: finalOrderUrl,
+          ebayListingUrl: entry.ebayListingUrl || finalListingUrl,
           unitOriginalValue: batchUnitVal,
           coverUrl: entry.coverUrl,
           releaseYear: entry.releaseYear,
@@ -386,6 +564,9 @@ export function CDModal({
       bundleInternalShipping: localShippingNum,
       unitInternalShipping: unitInternalShippingNum,
       localTrackingCode: localTrackingCode.trim().toUpperCase(),
+      ebayOrderId: finalOrderId,
+      ebayOrderUrl: finalOrderUrl,
+      ebayListingUrl: finalListingUrl,
       unitOriginalValue: finalUnitOriginalValue,
       coverUrl: coverUrl.trim() || undefined,
       releaseYear: releaseYear.trim() || undefined,
@@ -432,6 +613,63 @@ export function CDModal({
 
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
           <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1">
+            {/* ⚡ Preenchimento Rápido do eBay */}
+            <div className="rounded-xl bg-slate-950/85 border border-indigo-500/35 p-3 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  ⚡ Importar Rápido do eBay
+                </span>
+                <span className="text-[10px] text-slate-400">
+                  Cole link do anúncio (<code className="text-indigo-300">ebay.../itm/...</code>) ou texto do pedido
+                </span>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <textarea
+                  rows={1}
+                  placeholder="Cole aqui o link do anúncio (ebay.co.uk/itm/...), link do pedido ou texto copiado..."
+                  value={ebayQuickPasteInput}
+                  onChange={(e) => setEbayQuickPasteInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleImportFromEbayInCDModal();
+                    }
+                  }}
+                  className="flex-1 rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-400 focus:outline-none resize-y min-h-[38px]"
+                />
+                <button
+                  type="button"
+                  onClick={handleImportFromEbayInCDModal}
+                  disabled={isParsingEbay || !ebayQuickPasteInput.trim()}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 px-4 py-2 text-xs font-semibold text-white transition shrink-0"
+                >
+                  {isParsingEbay ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Lendo eBay...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Preencher Dados
+                    </>
+                  )}
+                </button>
+              </div>
+              {ebayImportFeedback && (
+                <p
+                  className={`text-[11px] px-2.5 py-1.5 rounded-lg border ${
+                    ebayImportFeedback.type === 'success'
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                      : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                  }`}
+                >
+                  {ebayImportFeedback.text}
+                </p>
+              )}
+            </div>
+
             {/* SELETOR EM ABAS (Segmented Control): CD Individual vs Lote / Bundle */}
             <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800">
               <button
@@ -1000,6 +1238,70 @@ export function CDModal({
                   <p className="text-[10px] text-slate-500 mt-1">
                     Rastreio interno no país de origem
                   </p>
+                </div>
+
+                <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2 border-t border-slate-700/50">
+                  <div>
+                    <label className="block text-xs text-slate-300 mb-1 flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1">
+                        <Link2 className="w-3.5 h-3.5 text-purple-400" /> Link do Anúncio eBay
+                      </span>
+                      {ebayListingUrl.trim().startsWith('http') && (
+                        <a
+                          href={ebayListingUrl.trim()}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] font-mono text-purple-300 hover:text-purple-200 underline"
+                        >
+                          Abrir Anúncio <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="https://www.ebay.co.uk/itm/..."
+                      value={ebayListingUrl}
+                      onChange={(e) => setEbayListingUrl(e.target.value)}
+                      className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-white font-mono placeholder-slate-600 focus:border-purple-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-slate-300 mb-1 flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1">
+                        <Link2 className="w-3.5 h-3.5 text-sky-400" /> Pedido eBay (Link ou Nº)
+                      </span>
+                      {(() => {
+                        const info = extractEbayOrderInfo(ebayOrderInput);
+                        const href =
+                          info.ebayOrderUrl ||
+                          (ebayOrderInput.trim().startsWith('http')
+                            ? ebayOrderInput.trim()
+                            : '');
+                        if (!href) return null;
+                        return (
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] font-mono text-sky-300 hover:text-sky-200 underline"
+                          >
+                            {info.ebayOrderId
+                              ? `#${info.ebayOrderId}`
+                              : 'Abrir Pedido'}{' '}
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        );
+                      })()}
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: 04-15363-94135 ou https://order.ebay.com/..."
+                      value={ebayOrderInput}
+                      onChange={(e) => setEbayOrderInput(e.target.value)}
+                      className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-white font-mono placeholder-slate-600 focus:border-purple-500 focus:outline-none"
+                    />
+                  </div>
                 </div>
               </div>
             </div>

@@ -31,6 +31,8 @@ export interface Shipment {
   customsTaxBrl: number; // Impostos Alfandegários (II + ICMS) em BRL
   isTaxEstimated: boolean; // Indica se o imposto atual é uma estimativa (0.9277) ou valor real da DIT
   internationalTrackingCode?: string; // Código de rastreio do redirecionador para o Brasil
+  ebayOrderId?: string; // Número do pedido no eBay (ex: 04-15363-94135)
+  ebayOrderUrl?: string; // Link direto para o pedido no eBay (ex: https://order.ebay.com/ord/show?orderId=...)
   notes?: string;
   createdAt: string;
 }
@@ -52,6 +54,9 @@ export interface CDItem {
   packingHandling?: 'original_box' | 'unpacked'; // Se foi mantido na caixa original ou tirado da caixa no redirecionador
   isConsolidated?: boolean; // Indica se este CD já foi consolidado em um pacote (bloqueado para nova consolidação)
   localTrackingCode?: string; // Código de rastreio local (vendedor -> redirecionador)
+  ebayOrderId?: string; // Número do pedido original no eBay
+  ebayOrderUrl?: string; // Link do pedido original no eBay
+  ebayListingUrl?: string; // Link público do anúncio do CD no eBay (/itm/...)
   unitOriginalValue: number; // Valor_Unitario_Original (na moeda original)
   coverUrl?: string; // URL da capa do álbum (buscada via iTunes / Cover Art Archive ou manual)
   releaseYear?: string; // Ano de lançamento do álbum

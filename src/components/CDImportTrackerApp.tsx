@@ -734,6 +734,7 @@ export default function CDImportTrackerApp() {
       const matchShipment =
         ship.name.toLowerCase().includes(q) ||
         (ship.internationalTrackingCode || '').toLowerCase().includes(q) ||
+        (ship.ebayOrderId || '').toLowerCase().includes(q) ||
         (ship.notes || '').toLowerCase().includes(q);
 
       if (matchShipment) return true;
@@ -744,6 +745,7 @@ export default function CDImportTrackerApp() {
           cd.artist.toLowerCase().includes(q) ||
           cd.albumTitle.toLowerCase().includes(q) ||
           (cd.localTrackingCode || '').toLowerCase().includes(q) ||
+          (cd.ebayOrderId || '').toLowerCase().includes(q) ||
           (cd.bundleName || '').toLowerCase().includes(q)
       );
     });
@@ -941,6 +943,9 @@ export default function CDImportTrackerApp() {
             bundleInternalShipping: 0,
             unitInternalShipping: 0,
             localTrackingCode: initialBundle.localTrackingCode || '',
+            ebayOrderId: data.ebayOrderId,
+            ebayOrderUrl: data.ebayOrderUrl,
+            ebayListingUrl: entry.ebayListingUrl,
             unitOriginalValue: itemUnitVal,
             coverUrl: entry.coverUrl,
             releaseYear: entry.releaseYear,
@@ -1193,6 +1198,9 @@ export default function CDImportTrackerApp() {
                   : cd.unitOriginalValue,
               coverUrl: edited.coverUrl ?? cd.coverUrl,
               releaseYear: edited.releaseYear ?? cd.releaseYear,
+              ebayListingUrl: edited.ebayListingUrl ?? cd.ebayListingUrl,
+              ebayOrderId: resolvedData.ebayOrderId ?? cd.ebayOrderId,
+              ebayOrderUrl: resolvedData.ebayOrderUrl ?? cd.ebayOrderUrl,
               localTrackingCode:
                 initialBundle?.localTrackingCode || cd.localTrackingCode,
             };
@@ -2372,6 +2380,27 @@ export default function CDImportTrackerApp() {
                               Agrupado
                             </span>
                           )}
+
+                          {(ship.ebayOrderUrl || ship.ebayOrderId) && (
+                            <a
+                              href={
+                                ship.ebayOrderUrl ||
+                                `https://order.ebay.com/ord/show?orderId=${ship.ebayOrderId}`
+                              }
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              title="Abrir pedido original no eBay"
+                              className="inline-flex items-center gap-1 rounded bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 px-1.5 py-0.5 text-[10px] font-mono text-sky-300 transition"
+                            >
+                              <span>
+                                {ship.ebayOrderId
+                                  ? `#${ship.ebayOrderId}`
+                                  : 'Pedido eBay'}
+                              </span>
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
@@ -2786,6 +2815,28 @@ export default function CDImportTrackerApp() {
                           >
                             <Truck className="w-3 h-3" />
                             {selectedSummary.shipment.internationalTrackingCode}
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        )}
+
+                        {(selectedSummary.shipment.ebayOrderUrl ||
+                          selectedSummary.shipment.ebayOrderId) && (
+                          <a
+                            href={
+                              selectedSummary.shipment.ebayOrderUrl ||
+                              `https://order.ebay.com/ord/show?orderId=${selectedSummary.shipment.ebayOrderId}`
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 rounded-md bg-indigo-500/15 border border-indigo-500/30 px-2 py-0.5 font-mono text-[11px] text-indigo-300 hover:bg-indigo-500/25 transition"
+                            title="Abrir detalhes do pedido original no eBay"
+                          >
+                            <span>
+                              Pedido eBay{' '}
+                              {selectedSummary.shipment.ebayOrderId
+                                ? `#${selectedSummary.shipment.ebayOrderId}`
+                                : ''}
+                            </span>
                             <ExternalLink className="w-2.5 h-2.5" />
                           </a>
                         )}
@@ -3217,6 +3268,31 @@ export default function CDImportTrackerApp() {
                                             Box {item.discCount} CDs
                                           </span>
                                         )}
+                                        {(item.ebayListingUrl ||
+                                          item.ebayOrderUrl ||
+                                          item.ebayOrderId) && (
+                                          <a
+                                            href={
+                                              item.ebayListingUrl ||
+                                              item.ebayOrderUrl ||
+                                              `https://order.ebay.com/ord/show?orderId=${item.ebayOrderId}`
+                                            }
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="inline-flex items-center gap-1 rounded bg-sky-500/15 border border-sky-500/30 px-1.5 py-0.5 text-[10px] font-mono text-sky-300 hover:bg-sky-500/25 whitespace-nowrap"
+                                            title="Abrir anúncio ou pedido original no eBay"
+                                          >
+                                            <span>
+                                              {item.ebayListingUrl
+                                                ? 'Anúncio eBay'
+                                                : item.ebayOrderId
+                                                ? `#${item.ebayOrderId}`
+                                                : 'Pedido eBay'}
+                                            </span>
+                                            <ExternalLink className="w-2.5 h-2.5" />
+                                          </a>
+                                        )}
                                       </div>
                                     </>
                                   )}
@@ -3451,6 +3527,33 @@ export default function CDImportTrackerApp() {
                                                 <span className="font-mono text-[10px] text-sky-300 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 whitespace-nowrap">
                                                   🚚 {item.localTrackingCode}
                                                 </span>
+                                              )}
+                                              {(item.ebayListingUrl ||
+                                                item.ebayOrderUrl ||
+                                                item.ebayOrderId) && (
+                                                <a
+                                                  href={
+                                                    item.ebayListingUrl ||
+                                                    item.ebayOrderUrl ||
+                                                    `https://order.ebay.com/ord/show?orderId=${item.ebayOrderId}`
+                                                  }
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  onClick={(e) =>
+                                                    e.stopPropagation()
+                                                  }
+                                                  className="inline-flex items-center gap-1 rounded bg-sky-500/15 border border-sky-500/30 px-1.5 py-0.5 text-[10px] font-mono text-sky-300 hover:bg-sky-500/25 transition whitespace-nowrap"
+                                                  title="Abrir anúncio ou pedido original no eBay"
+                                                >
+                                                  <span>
+                                                    {item.ebayListingUrl
+                                                      ? 'Anúncio eBay'
+                                                      : item.ebayOrderId
+                                                      ? `#${item.ebayOrderId}`
+                                                      : 'Pedido eBay'}
+                                                  </span>
+                                                  <ExternalLink className="w-2.5 h-2.5" />
+                                                </a>
                                               )}
                                             </div>
 
