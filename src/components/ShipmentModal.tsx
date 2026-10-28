@@ -401,11 +401,23 @@ export function ShipmentModal({
       }
 
       if (data.items && data.items.length > 0) {
+        // Verifica se todos os itens têm preços distintos (compra multi-item) ou se fazem parte de um lote único (bundle)
+        const hasDistinctIndividualPrices =
+          data.items.length > 1 &&
+          data.items.some(
+            (item, _, arr) =>
+              item.unitPrice !== undefined &&
+              arr[0].unitPrice !== undefined &&
+              Math.abs(item.unitPrice - arr[0].unitPrice) > 0.01
+          );
+
         const importedEntries: InitialCDEntry[] = data.items.map((item) => ({
           artist: item.artist || '',
           albumTitle: item.albumTitle || item.rawTitle || '',
           unitPrice:
-            item.unitPrice !== undefined && item.unitPrice >= 0
+            hasDistinctIndividualPrices &&
+            item.unitPrice !== undefined &&
+            item.unitPrice >= 0
               ? String(Number(item.unitPrice.toFixed(2)))
               : '',
           discCount: item.discCount || 1,
@@ -414,31 +426,33 @@ export function ShipmentModal({
           ebayListingUrl: item.ebayListingUrl,
         }));
 
-        // Se a primeira linha atual estiver vazia, substitui; caso contrário, adiciona ao final
-        const isCurrentEmpty =
-          cdEntries.length === 1 &&
-          !cdEntries[0].id &&
-          !cdEntries[0].artist.trim() &&
-          !cdEntries[0].albumTitle.trim() &&
-          !cdEntries[0].unitPrice.trim();
-
-        const nextEntries = isCurrentEmpty
-          ? importedEntries
-          : [...cdEntries, ...importedEntries];
+        // Mantém apenas CDs já salvos no banco (com id); substitui rascunhos não salvos para não duplicar ao testar várias vezes
+        const savedEntries = cdEntries.filter((e) => Boolean(e.id));
+        const nextEntries =
+          savedEntries.length > 0
+            ? [...savedEntries, ...importedEntries]
+            : importedEntries;
 
         setCdEntries(nextEntries);
 
-        const sumPrices = nextEntries.reduce(
-          (acc, e) => acc + Math.max(0, parseFloat(e.unitPrice) || 0),
-          0
-        );
-        if (sumPrices > 0) {
-          setBundleTotalValue(String(Number(sumPrices.toFixed(2))));
+        if (data.bundleTotalValue !== undefined && data.bundleTotalValue > 0) {
+          setBundleTotalValue(String(Number(data.bundleTotalValue.toFixed(2))));
+        } else {
+          const sumPrices = data.items.reduce(
+            (acc, e) => acc + Math.max(0, e.unitPrice || 0),
+            0
+          );
+          if (sumPrices > 0) {
+            setBundleTotalValue(String(Number(sumPrices.toFixed(2))));
+          }
         }
 
         // Busca capas de álbum em alta resolução (iTunes/MusicBrainz) em background para os itens importados
         nextEntries.forEach((entry, idx) => {
-          if (entry.artist.trim() || entry.albumTitle.trim()) {
+          if (
+            (entry.artist.trim() || entry.albumTitle.trim()) &&
+            !entry.albumTitle.startsWith('CD #')
+          ) {
             fetchBestAlbumCover(entry.artist, entry.albumTitle)
               .then((best) => {
                 if (best?.coverUrl) {

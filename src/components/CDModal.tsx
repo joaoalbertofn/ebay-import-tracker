@@ -412,12 +412,16 @@ export function CDModal({
         setIsBundle(true);
         setEnableBatchCreate(true);
         setBundleTotalQuantity(String(data.items.length));
-        const sumPrices = data.items.reduce(
-          (acc, i) => acc + (i.unitPrice || 0),
-          0
-        );
-        if (sumPrices > 0) {
-          setBundleTotalValue(String(Number(sumPrices.toFixed(2))));
+        if (data.bundleTotalValue !== undefined && data.bundleTotalValue > 0) {
+          setBundleTotalValue(String(Number(data.bundleTotalValue.toFixed(2))));
+        } else {
+          const sumPrices = data.items.reduce(
+            (acc, i) => acc + (i.unitPrice || 0),
+            0
+          );
+          if (sumPrices > 0) {
+            setBundleTotalValue(String(Number(sumPrices.toFixed(2))));
+          }
         }
         const entries: BatchAlbumEntry[] = data.items.map((item) => ({
           artist: item.artist || '',
