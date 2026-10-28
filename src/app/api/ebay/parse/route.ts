@@ -52,18 +52,18 @@ function htmlToPlainTextWithLines(html: string): string {
 }
 
 /**
- * Busca a descrição do vendedor no endpoint dedicado de descrição do eBay (vi.vipr.ebaydesc.com)
+ * Busca a descrição do vendedor no endpoint dedicado de descrição do eBay (itm.ebaydesc.com)
  */
 async function fetchSellerDescriptionByItemId(itemId: string): Promise<string> {
   const descUrls = [
-    `https://vi.vipr.ebaydesc.com/ws/eBayISAPI.dll?ViewItemDescV4&item=${itemId}`,
     `https://itm.ebaydesc.com/itmdesc/${itemId}`,
+    `https://vi.vipr.ebaydesc.com/ws/eBayISAPI.dll?ViewItemDescV4&item=${itemId}`,
   ];
 
   for (const descUrl of descUrls) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5500);
+      const timeout = setTimeout(() => controller.abort(), 6500);
       const res = await fetch(descUrl, {
         signal: controller.signal,
         headers: {
@@ -78,7 +78,7 @@ async function fetchSellerDescriptionByItemId(itemId: string): Promise<string> {
         const html = await res.text();
         const text = htmlToPlainTextWithLines(html);
         if (
-          text.length > 15 &&
+          text.length > 10 &&
           !/pardon\s+our\s+interruption/i.test(text)
         ) {
           return text;
@@ -89,6 +89,54 @@ async function fetchSellerDescriptionByItemId(itemId: string): Promise<string> {
     }
   }
   return '';
+}
+
+/**
+ * Extrai títulos ou metadados de CDs inseridos pelo vendedor dentro do template HTML da descrição
+ */
+function extractStructuredListingFromDescription(descText: string): {
+  rawTitle?: string;
+  artist?: string;
+} {
+  if (!descText) return {};
+  const lines = descText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  // 1. Template Frooition / padrão de livrarias (ex: "Title: Shogun [Special Edition]... Author: Trivium")
+  let frooTitle: string | undefined;
+  let frooAuthor: string | undefined;
+  for (const l of lines) {
+    const tMatch = l.match(/^Title:\s*(.+)$/i);
+    if (tMatch && !frooTitle) frooTitle = tMatch[1].trim();
+    const aMatch = l.match(/^(?:Author|Artist|Artista):\s*(.+)$/i);
+    if (aMatch && !frooAuthor) frooAuthor = aMatch[1].trim();
+  }
+  if (frooTitle) {
+    return { rawTitle: frooTitle, artist: frooAuthor };
+  }
+
+  // 2. Linhas diretas de anúncio de CD (ex: "System of a Down Hypnotize 2005 Sony BMG Rock CD Album")
+  for (const line of lines) {
+    if (
+      /\b(?:cd\s*album|rock\s*cd|audio\s*cd|cd\s*single|jewel\s*case)\b/i.test(
+        line
+      ) &&
+      line.length >= 12 &&
+      line.length <= 130
+    ) {
+      if (
+        !/\b(?:returns?|shipping|payment|guarantee|condition|terms|feedback)\b/i.test(
+          line
+        )
+      ) {
+        return { rawTitle: line };
+      }
+    }
+  }
+
+  return {};
 }
 
 /**
@@ -408,14 +456,37 @@ async function fetchPublicEbayListingItems(url: string): Promise<{
   const sellerDescText = await sellerDescPromise;
   const combinedDescriptionText = `${sellerDescText}\n${pagePlainText}`.trim();
 
+  // Se não temos título ainda, tenta extrair da descrição estruturada do vendedor (ex: Trivium, System of a Down, HIM)
+  const structuredFromDesc = extractStructuredListingFromDescription(sellerDescText);
+  if (!rawTitle && structuredFromDesc.rawTitle) {
+    rawTitle = structuredFromDesc.rawTitle;
+  }
+
   if (!rawTitle && slugTitle) {
     rawTitle = slugTitle;
   }
 
   // Tenta descobrir o artista pela descrição ou pelo título (ex: "HIM 7 album cd bundle" -> "HIM")
-  const inferredArtist =
+  let inferredArtist =
     extractArtistFromBundleTitle(rawTitle) ||
-    extractArtistFromBundleTitle(sellerDescText);
+    extractArtistFromBundleTitle(sellerDescText) ||
+    structuredFromDesc.artist ||
+    '';
+
+  // Detecta se o anúncio é britânico pelo frete ou termos na descrição
+  if (
+    /£|\bGBP\b|\bRoyal\s*Mail\b|\bUK\s*Tracked\b|\bFree\s*UK\b|\bUnited\s*Kingdom\b|\bHolyhead\b/i.test(
+      combinedDescriptionText
+    )
+  ) {
+    currency = 'GBP';
+  } else if (
+    /€|\bEUR\b|\bDeutsche\s*Post\b|\bColissimo\b/i.test(
+      combinedDescriptionText
+    )
+  ) {
+    currency = 'EUR';
+  }
 
   // Verifica se a descrição do vendedor contém a lista numerada dos álbuns do lote (ex: 1. Love Metal, 2. Dark Light...)
   const descriptionAlbums = extractNumberedAlbumsFromDescription(
