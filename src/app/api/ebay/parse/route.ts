@@ -467,7 +467,7 @@ async function fetchPublicEbayListingItems(url: string): Promise<{
   }
 
   // Tenta descobrir o artista pela descrição ou pelo título (ex: "HIM 7 album cd bundle" -> "HIM")
-  let inferredArtist =
+  const inferredArtist =
     extractArtistFromBundleTitle(rawTitle) ||
     extractArtistFromBundleTitle(sellerDescText) ||
     structuredFromDesc.artist ||

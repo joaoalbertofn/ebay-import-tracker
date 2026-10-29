@@ -22,8 +22,8 @@ export const CURRENCY_META: Record<
     symbol: '£',
     label: 'Libra Esterlina (GBP)',
     defaultRate: 7.45,
-    defaultGroupOnlyFee: 3.0,
-    defaultUnpackAndRepackFee: 6.5,
+    defaultGroupOnlyFee: 2.4, // £2.00 Consolidation + 20% VAT por pacote
+    defaultUnpackAndRepackFee: 3.6, // £2.00 Consolidation + £1.00 Unpack + 20% VAT por pacote
   },
   USD: {
     symbol: 'US$',

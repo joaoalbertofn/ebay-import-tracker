@@ -71,6 +71,8 @@ import {
   Flame,
   PanelLeftClose,
   PanelLeftOpen,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 
 const STORAGE_KEY_SHIPMENTS = 'cd_import_tracker_shipments_v1';
@@ -219,6 +221,12 @@ export default function CDImportTrackerApp() {
   // Modais
   const [isShipmentModalOpen, setIsShipmentModalOpen] = useState(false);
   const [editingShipment, setEditingShipment] = useState<Shipment | null>(null);
+  const [checkedPackageIds, setCheckedPackageIds] = useState<Set<string>>(
+    new Set()
+  );
+  const [preselectedModalPackageIds, setPreselectedModalPackageIds] = useState<
+    string[]
+  >([]);
 
   const [isCDModalOpen, setIsCDModalOpen] = useState(false);
   const [editingCD, setEditingCD] = useState<CDItem | null>(null);
@@ -449,6 +457,92 @@ export default function CDImportTrackerApp() {
     };
   }, [isAuthLoaded, isSignedIn, currentUserId]);
 
+  // Revalidação periódica suave da nuvem a cada 30 minutos e ao alternar de volta para a aba
+  useEffect(() => {
+    if (!isHydrated || !isSignedIn || !currentUserId) return;
+
+    let isChecking = false;
+    const checkForRemoteUpdates = async () => {
+      if (isChecking) return;
+      isChecking = true;
+      try {
+        const res = await fetch('/api/tracker', { cache: 'no-store' });
+        if (!res.ok) return;
+        const serverData = await res.json();
+        if (
+          !serverData.exists ||
+          !Array.isArray(serverData.shipments) ||
+          !Array.isArray(serverData.cdItems) ||
+          isOnlyDefaultSeed(serverData.shipments)
+        ) {
+          return;
+        }
+
+        const userUpdatedAtKey = `${STORAGE_KEY_UPDATED_AT}_${currentUserId}`;
+        const localUpdatedAt = localStorage.getItem(userUpdatedAtKey);
+        const serverTimestamp = serverData.updatedAt
+          ? new Date(serverData.updatedAt).getTime()
+          : 0;
+        const localTimestamp = localUpdatedAt
+          ? new Date(localUpdatedAt).getTime()
+          : 0;
+
+        // Atualiza a tela se o servidor estiver mais recente do que o estado local
+        if (serverTimestamp > localTimestamp) {
+          const userMigrationKey = `${STORAGE_KEY_CONSOLIDATED_MIGRATION}_${currentUserId}`;
+          const alreadyMigrated =
+            typeof window !== 'undefined' &&
+            localStorage.getItem(userMigrationKey) === '1';
+
+          const normalizedServer = normalizeConsolidatedState(
+            serverData.shipments,
+            serverData.cdItems,
+            !alreadyMigrated
+          );
+
+          isSyncingFromServerRef.current = !normalizedServer.changed;
+          setShipments(normalizedServer.shipments);
+          setCdItems(normalizedServer.cdItems);
+
+          const userShipmentsKey = `${STORAGE_KEY_SHIPMENTS}_${currentUserId}`;
+          const userCdsKey = `${STORAGE_KEY_CDS}_${currentUserId}`;
+          localStorage.setItem(
+            userShipmentsKey,
+            JSON.stringify(normalizedServer.shipments)
+          );
+          localStorage.setItem(
+            userCdsKey,
+            JSON.stringify(normalizedServer.cdItems)
+          );
+          if (serverData.updatedAt) {
+            localStorage.setItem(userUpdatedAtKey, serverData.updatedAt);
+          }
+          setCloudSyncStatus('synced');
+        }
+      } catch {
+        // silencioso
+      } finally {
+        isChecking = false;
+      }
+    };
+
+    // 1. Timer a cada 30 minutos
+    const intervalTimer = setInterval(checkForRemoteUpdates, 30 * 60 * 1000);
+
+    // 2. Checagem quando o usuário volta para a aba do navegador
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkForRemoteUpdates();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(intervalTimer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isHydrated, isSignedIn, currentUserId]);
+
   // Mantém o Nome Identificador de todos os pacotes sincronizado automaticamente ([CD Individual] ou [Lote]),
   // respeitando pacotes com nome personalizado travado (isCustomName === true)
   useEffect(() => {
@@ -606,6 +700,65 @@ export default function CDImportTrackerApp() {
       }))
       .filter((fp) => fp.items.length > 0);
   }, [shipments, cdItems]);
+
+  const forwarderPackageIdsSet = useMemo(() => {
+    return new Set(forwarderPackages.map((fp) => fp.shipment.id));
+  }, [forwarderPackages]);
+
+  // Mantém o estado de checkboxes sincronizado caso algum pacote seja consolidado ou removido
+  useEffect(() => {
+    setCheckedPackageIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (forwarderPackageIdsSet.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [forwarderPackageIdsSet]);
+
+  const checkedConsolidationStats = useMemo(() => {
+    let totalCds = 0;
+    let validCount = 0;
+    for (const fp of forwarderPackages) {
+      if (checkedPackageIds.has(fp.shipment.id)) {
+        validCount++;
+        totalCds += fp.items.length;
+      }
+    }
+    return {
+      packageCount: validCount,
+      totalCds,
+    };
+  }, [forwarderPackages, checkedPackageIds]);
+
+  const handleToggleCheckPackage = (
+    e: React.MouseEvent,
+    shipmentId: string
+  ) => {
+    e.stopPropagation();
+    if (!forwarderPackageIdsSet.has(shipmentId)) return;
+    setCheckedPackageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(shipmentId)) {
+        next.delete(shipmentId);
+      } else {
+        next.add(shipmentId);
+      }
+      return next;
+    });
+  };
+
+  const handleOpenConsolidateFromChecked = () => {
+    if (checkedConsolidationStats.packageCount < 2) return;
+    setEditingShipment(null);
+    setPreselectedModalPackageIds(Array.from(checkedPackageIds));
+    setIsShipmentModalOpen(true);
+  };
 
   // Botão para buscar todas as capas faltantes do pacote selecionado
   const handleFetchAllCoversInShipment = async () => {
@@ -1223,6 +1376,10 @@ export default function CDImportTrackerApp() {
 
     setSelectedShipmentId(targetShipmentId);
     setMobileActivePane('detail');
+    if (absorbedSet.size > 0) {
+      setCheckedPackageIds(new Set());
+      setPreselectedModalPackageIds([]);
+    }
 
     if (discardedSet.size > 0 && absorbedSet.size > 0) {
       showToast(
@@ -2224,27 +2381,71 @@ export default function CDImportTrackerApp() {
               mobileActivePane === 'detail' ? 'hidden lg:flex' : 'flex'
             } lg:col-span-4 xl:col-span-4 flex-col gap-3.5 bg-slate-900/60 border border-slate-800/90 rounded-2xl p-4 lg:sticky lg:top-24`}
           >
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center gap-2">
                   <Package className="w-4 h-4 text-indigo-400" />
                   Pacotes / Lotes ({filteredShipments.length})
                 </h2>
                 <p className="text-[11px] text-slate-400">
-                  Toque em um pacote para abrir seus detalhes
+                  {checkedConsolidationStats.packageCount > 0
+                    ? `${checkedConsolidationStats.packageCount} ${
+                        checkedConsolidationStats.packageCount === 1
+                          ? 'pacote marcado'
+                          : 'pacotes marcados'
+                      } (${checkedConsolidationStats.totalCds} CDs)`
+                    : 'Marque 2+ pacotes para consolidar ou toque para abrir'}
                 </p>
               </div>
 
-              <button
-                onClick={() => {
-                  setEditingShipment(null);
-                  setIsShipmentModalOpen(true);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-600/25 transition shrink-0"
-              >
-                <Plus className="w-4 h-4" />
-                Novo Pacote
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {checkedConsolidationStats.packageCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setCheckedPackageIds(new Set())}
+                    title="Limpar seleção de pacotes"
+                    className="p-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-white transition"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleOpenConsolidateFromChecked}
+                  disabled={checkedConsolidationStats.packageCount < 2}
+                  title={
+                    checkedConsolidationStats.packageCount >= 2
+                      ? `Consolidar ${checkedConsolidationStats.packageCount} pacotes selecionados (${checkedConsolidationStats.totalCds} CDs)`
+                      : 'Marque pelo menos 2 pacotes disponíveis nos checkboxes abaixo para habilitar a consolidação'
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition shrink-0 ${
+                    checkedConsolidationStats.packageCount >= 2
+                      ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/25 cursor-pointer'
+                      : 'bg-slate-950 border border-slate-800 text-slate-500 opacity-60 cursor-not-allowed'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>
+                    Consolidar
+                    {checkedConsolidationStats.packageCount > 0
+                      ? ` (${checkedConsolidationStats.packageCount})`
+                      : ''}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setEditingShipment(null);
+                    setPreselectedModalPackageIds([]);
+                    setIsShipmentModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-600/25 transition shrink-0 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  Novo Pacote
+                </button>
+              </div>
             </div>
 
             {/* Barra de Busca Global e Filtro por Status */}
@@ -2304,6 +2505,12 @@ export default function CDImportTrackerApp() {
                   const summary = summariesMap.get(ship.id);
                   const isSelected = ship.id === selectedShipmentId;
                   const statusInfo = STATUS_LABELS[ship.status];
+                  const isEligibleForConsolidation = forwarderPackageIdsSet.has(
+                    ship.id
+                  );
+                  const isCheckedForConsolidation = checkedPackageIds.has(
+                    ship.id
+                  );
 
                   return (
                     <div
@@ -2320,24 +2527,49 @@ export default function CDImportTrackerApp() {
                         }
                       }}
                       className={`group cursor-pointer rounded-xl border p-3.5 transition-all ${
-                        isSelected
+                        isCheckedForConsolidation
+                          ? 'bg-amber-950/30 border-amber-500/70 shadow-md shadow-amber-950/30'
+                          : isSelected
                           ? 'bg-indigo-950/45 border-indigo-500/80 shadow-md shadow-indigo-950/40'
                           : 'bg-slate-950/70 border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/60'
                       }`}
                     >
-                      {/* Linha 1: Nome + Status Badge */}
+                      {/* Linha 1: Checkbox (se elegível) + Nome + Status Badge */}
                       <div className="flex items-center justify-between gap-2">
-                        <h3 className="text-sm font-semibold text-white truncate flex items-center gap-1.5">
-                          {ship.isCustomName && (
-                            <span
-                              title="Nome personalizado travado"
-                              className="inline-flex shrink-0"
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          {isEligibleForConsolidation && (
+                            <button
+                              type="button"
+                              onClick={(e) =>
+                                handleToggleCheckPackage(e, ship.id)
+                              }
+                              title={
+                                isCheckedForConsolidation
+                                  ? 'Desmarcar da consolidação'
+                                  : 'Marcar pacote para consolidar'
+                              }
+                              className="p-0.5 rounded text-slate-400 hover:text-amber-300 transition shrink-0 cursor-pointer"
                             >
-                              <Lock className="w-3 h-3 text-amber-400" />
-                            </span>
+                              {isCheckedForConsolidation ? (
+                                <CheckSquare className="w-4 h-4 text-amber-400" />
+                              ) : (
+                                <Square className="w-4 h-4 text-slate-500 group-hover:text-slate-300" />
+                              )}
+                            </button>
                           )}
-                          <span className="truncate">{ship.name}</span>
-                        </h3>
+
+                          <h3 className="text-sm font-semibold text-white truncate flex items-center gap-1.5 min-w-0">
+                            {ship.isCustomName && (
+                              <span
+                                title="Nome personalizado travado"
+                                className="inline-flex shrink-0"
+                              >
+                                <Lock className="w-3 h-3 text-amber-400" />
+                              </span>
+                            )}
+                            <span className="truncate">{ship.name}</span>
+                          </h3>
+                        </div>
 
                         <span
                           className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium shrink-0 ${statusInfo.badgeClass}`}
@@ -3692,11 +3924,13 @@ export default function CDImportTrackerApp() {
         onClose={() => {
           setIsShipmentModalOpen(false);
           setEditingShipment(null);
+          setPreselectedModalPackageIds([]);
         }}
         onSave={handleSaveShipment}
         editingShipment={editingShipment}
         editingShipmentItems={editingShipmentItems}
         forwarderPackages={forwarderPackages}
+        initialPreselectedPackageIds={preselectedModalPackageIds}
       />
 
       {/* POP-UP 2: MODAL DE CD / BUNDLE */}

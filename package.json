@@ -8,8 +8,12 @@
     "start": "next start",
     "lint": "eslint",
     "db:status": "node scripts/db-sync.mjs status",
+    "db:sync": "node scripts/db-sync.mjs sync",
+    "db:watch": "node scripts/db-sync.mjs watch 30",
     "db:pull": "node scripts/db-sync.mjs pull",
-    "db:push": "node scripts/db-sync.mjs push"
+    "db:push": "node scripts/db-sync.mjs push",
+    "db:daemon:install": "node scripts/db-sync.mjs daemon-install",
+    "db:daemon:uninstall": "node scripts/db-sync.mjs daemon-uninstall"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.17",

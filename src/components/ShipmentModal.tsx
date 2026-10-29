@@ -54,7 +54,7 @@ import {
   Link2,
 } from 'lucide-react';
 
-const STORAGE_KEY_FEES = 'cd_import_tracker_forwarder_fees_v1';
+const STORAGE_KEY_FEES = 'cd_import_tracker_forwarder_fees_v2';
 
 interface SavedForwarderFees {
   [currency: string]: {
@@ -117,6 +117,7 @@ interface ShipmentModalProps {
   editingShipment?: Shipment | null;
   editingShipmentItems?: CDItem[];
   forwarderPackages?: ForwarderPackageOption[];
+  initialPreselectedPackageIds?: string[];
 }
 
 export const STATUS_LABELS: Record<
@@ -168,6 +169,7 @@ export function ShipmentModal({
   editingShipment,
   editingShipmentItems = [],
   forwarderPackages = [],
+  initialPreselectedPackageIds = [],
 }: ShipmentModalProps) {
   const [name, setName] = useState('');
   const [isCustomName, setIsCustomName] = useState(false);
@@ -355,10 +357,36 @@ export function ShipmentModal({
       setCdEntries([
         { artist: '', albumTitle: '', unitPrice: '', discCount: 1 },
       ]);
-      loadFeePresetsForCurrency('GBP');
+      const { savedUnpack } = loadFeePresetsForCurrency('GBP');
       handleFetchLiveRate('GBP');
+
+      if (initialPreselectedPackageIds.length > 0) {
+        const preselectedSet = new Set(initialPreselectedPackageIds);
+        const matchingPackages = forwarderPackages.filter(
+          (fp) => preselectedSet.has(fp.shipment.id) && fp.items.length > 0
+        );
+        const preselectedCdIds = new Set<string>(
+          matchingPackages.flatMap((fp) => fp.items.map((cd) => cd.id))
+        );
+
+        if (preselectedCdIds.size > 0) {
+          setSelectedExistingCdIds(preselectedCdIds);
+          setConsolidationAction('unpack_and_repack');
+          setStatus('consolidado');
+          setIsForwarderExpandedManual(true);
+          const pkgCount = Math.max(1, matchingPackages.length);
+          const totalFee = Number((pkgCount * savedUnpack).toFixed(2));
+          setForwarderFee(String(totalFee));
+        }
+      }
     }
-  }, [isOpen, editingShipment, editingShipmentItems]);
+  }, [
+    isOpen,
+    editingShipment,
+    editingShipmentItems,
+    forwarderPackages,
+    initialPreselectedPackageIds,
+  ]);
 
   const handleImportFromEbay = async () => {
     const raw = ebayQuickPasteInput.trim();
@@ -516,11 +544,10 @@ export function ShipmentModal({
     setExchangeRate(CURRENCY_META[newCurr].defaultRate);
     const { savedGroup, savedUnpack } = loadFeePresetsForCurrency(newCurr);
     if (selectedExistingCdIds.size > 0) {
-      setForwarderFee(
-        String(
-          consolidationAction === 'group_only' ? savedGroup : savedUnpack
-        )
-      );
+      const pkgCount = Math.max(1, selectedSourceShipmentsCount);
+      const unitFee =
+        consolidationAction === 'group_only' ? savedGroup : savedUnpack;
+      setForwarderFee(String(Number((pkgCount * unitFee).toFixed(2))));
     }
     handleFetchLiveRate(newCurr);
   };
@@ -710,22 +737,34 @@ export function ShipmentModal({
     return count;
   }, [eligibleForwarderPackages, selectedExistingCdIds]);
 
-  const applyPresetFeeIfSelectionChanged = (
-    nextSelectedSize: number,
+  const countSourcePackagesForSet = (cdIdSet: Set<string>): number => {
+    let count = 0;
+    for (const fp of eligibleForwarderPackages) {
+      if (fp.items.some((cd) => cdIdSet.has(cd.id))) {
+        count++;
+      }
+    }
+    return count;
+  };
+
+  const applyPresetFeeForSelection = (
+    nextSelectedSet: Set<string>,
     prevSelectedSize: number,
     actionMode: 'group_only' | 'unpack_and_repack' = consolidationAction
   ) => {
-    if (nextSelectedSize > 0 && prevSelectedSize === 0) {
-      const feeToApply =
+    if (nextSelectedSet.size > 0) {
+      const pkgCount = Math.max(1, countSourcePackagesForSet(nextSelectedSet));
+      const unitFee =
         actionMode === 'group_only'
-          ? groupOnlyFeePreset
-          : unpackAndRepackFeePreset;
-      setForwarderFee(feeToApply);
+          ? parseFloat(groupOnlyFeePreset) || 0
+          : parseFloat(unpackAndRepackFeePreset) || 0;
+      const totalFee = Number((pkgCount * unitFee).toFixed(2));
+      setForwarderFee(String(totalFee));
       if (status === 'comprado' || status === 'no_redirecionador') {
         setStatus('consolidado');
       }
     } else if (
-      nextSelectedSize === 0 &&
+      nextSelectedSet.size === 0 &&
       prevSelectedSize > 0 &&
       !editingShipment
     ) {
@@ -751,7 +790,7 @@ export function ShipmentModal({
       } else {
         nonDiscardedItems.forEach((cd) => next.add(cd.id));
       }
-      applyPresetFeeIfSelectionChanged(next.size, prev.size);
+      applyPresetFeeForSelection(next, prev.size);
       return next;
     });
   };
@@ -773,7 +812,7 @@ export function ShipmentModal({
       } else {
         next.add(cdId);
       }
-      applyPresetFeeIfSelectionChanged(next.size, prev.size);
+      applyPresetFeeForSelection(next, prev.size);
       return next;
     });
   };
@@ -789,10 +828,7 @@ export function ShipmentModal({
           if (!prevSelected.has(cdId)) return prevSelected;
           const nextSelected = new Set(prevSelected);
           nextSelected.delete(cdId);
-          applyPresetFeeIfSelectionChanged(
-            nextSelected.size,
-            prevSelected.size
-          );
+          applyPresetFeeForSelection(nextSelected, prevSelected.size);
           return nextSelected;
         });
       } else {
@@ -815,12 +851,10 @@ export function ShipmentModal({
       const next = isAllSelected
         ? new Set<string>()
         : new Set<string>(allNonDiscardedIds);
-      applyPresetFeeIfSelectionChanged(next.size, prev.size);
+      applyPresetFeeForSelection(next, prev.size);
       return next;
     });
   };
-
-  if (!isOpen) return null;
 
   const currSymbol = CURRENCY_META[currency].symbol;
 
@@ -871,6 +905,53 @@ export function ShipmentModal({
   const selectedForwarderCDs = eligibleForwarderPackages.flatMap((fp) =>
     fp.items.filter((cd) => selectedExistingCdIds.has(cd.id))
   );
+
+  // Soma do valor dos CDs selecionados na consolidação (convertidos para a moeda atual, considerando redistribuição de descartados)
+  const selectedForwarderCdsValueInTargetCurr = useMemo(() => {
+    if (selectedExistingCdIds.size === 0) return 0;
+    let total = 0;
+    for (const fp of eligibleForwarderPackages) {
+      const nonDiscarded = fp.items.filter(
+        (cd) => !discardedExistingCdIds.has(cd.id)
+      );
+      if (nonDiscarded.length === 0) continue;
+      const selectedInPkg = nonDiscarded.filter((cd) =>
+        selectedExistingCdIds.has(cd.id)
+      );
+      if (selectedInPkg.length === 0) continue;
+
+      const sourceRate =
+        Number(fp.shipment.exchangeRate) ||
+        CURRENCY_META[fp.shipment.currency]?.defaultRate ||
+        1;
+      const conversionFactor =
+        fp.shipment.currency === currency ? 1 : sourceRate / parsedRate;
+
+      const discardedCount = fp.items.length - nonDiscarded.length;
+      if (discardedCount > 0) {
+        const pkgTotalOrig = fp.items.reduce(
+          (acc, cd) => acc + (Number(cd.unitOriginalValue) || 0),
+          0
+        );
+        const redistributedUnit = pkgTotalOrig / nonDiscarded.length;
+        total +=
+          redistributedUnit * selectedInPkg.length * conversionFactor;
+      } else {
+        const selectedSumOrig = selectedInPkg.reduce(
+          (acc, cd) => acc + (Number(cd.unitOriginalValue) || 0),
+          0
+        );
+        total += selectedSumOrig * conversionFactor;
+      }
+    }
+    return Number(total.toFixed(2));
+  }, [
+    eligibleForwarderPackages,
+    selectedExistingCdIds,
+    discardedExistingCdIds,
+    currency,
+    parsedRate,
+  ]);
 
   const filledCdEntries = cdEntries.filter(
     (e) =>
@@ -1047,6 +1128,8 @@ export function ShipmentModal({
   const areAllForwarderSelected =
     allForwarderCdIds.length > 0 &&
     allForwarderCdIds.every((id) => selectedExistingCdIds.has(id));
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4">
@@ -1840,6 +1923,48 @@ export function ShipmentModal({
 
                 {selectedExistingCdIds.size > 0 && (
                   <div className="pt-2 border-t border-amber-500/30 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-950/90 border border-amber-500/35 px-3.5 py-2.5 text-xs">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-300">
+                        <span>
+                          <strong>{selectedSourceShipmentsCount}</strong>{' '}
+                          {selectedSourceShipmentsCount === 1
+                            ? 'pacote'
+                            : 'pacotes'}{' '}
+                          • <strong>{selectedExistingCdIds.size}</strong>{' '}
+                          {selectedExistingCdIds.size === 1 ? 'CD' : 'CDs'}
+                        </span>
+                        <span>
+                          • CDs:{' '}
+                          <strong className="font-mono text-amber-300">
+                            {formatOriginalCurrency(
+                              selectedForwarderCdsValueInTargetCurr,
+                              currency
+                            )}
+                          </strong>
+                        </span>
+                        {inheritedInternalShippingFromSelected > 0 && (
+                          <span>
+                            • Frete Local:{' '}
+                            <strong className="font-mono text-sky-300">
+                              {formatOriginalCurrency(
+                                inheritedInternalShippingFromSelected,
+                                currency
+                              )}
+                            </strong>
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-mono text-emerald-400 font-semibold">
+                        Subtotal Consolidado: ≈{' '}
+                        {formatBrl(
+                          (selectedForwarderCdsValueInTargetCurr +
+                            inheritedInternalShippingFromSelected +
+                            (parseFloat(forwarderFee) || 0)) *
+                            parsedRate
+                        )}
+                      </span>
+                    </div>
+
                     <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                       <span className="font-semibold text-amber-200">
                         Modo de consolidação no redirecionador (
@@ -1859,7 +1984,14 @@ export function ShipmentModal({
                       <div
                         onClick={() => {
                           setConsolidationAction('group_only');
-                          setForwarderFee(groupOnlyFeePreset);
+                          const pkgCount = Math.max(
+                            1,
+                            selectedSourceShipmentsCount
+                          );
+                          const unitFee = parseFloat(groupOnlyFeePreset) || 0;
+                          setForwarderFee(
+                            String(Number((pkgCount * unitFee).toFixed(2)))
+                          );
                         }}
                         className={`cursor-pointer rounded-xl border p-3 transition flex items-center justify-between gap-2 ${
                           consolidationAction === 'group_only'
@@ -1873,7 +2005,13 @@ export function ShipmentModal({
                             <span>Apenas Agrupar</span>
                           </div>
                           <p className="text-[11px] text-slate-400">
-                            Mantém embalagens originais
+                            Por pacote ({selectedSourceShipmentsCount}x ={' '}
+                            {currSymbol}
+                            {(
+                              Math.max(1, selectedSourceShipmentsCount) *
+                              (parseFloat(groupOnlyFeePreset) || 0)
+                            ).toFixed(2)}
+                            )
                           </p>
                         </div>
                         <div
@@ -1891,8 +2029,16 @@ export function ShipmentModal({
                             onChange={(e) => {
                               setGroupOnlyFeePreset(e.target.value);
                               setConsolidationAction('group_only');
-                              setForwarderFee(e.target.value);
+                              const pkgCount = Math.max(
+                                1,
+                                selectedSourceShipmentsCount
+                              );
+                              const unitFee = parseFloat(e.target.value) || 0;
+                              setForwarderFee(
+                                String(Number((pkgCount * unitFee).toFixed(2)))
+                              );
                             }}
+                            title="Taxa por pacote (ex: £2.40 c/ VAT)"
                             className="w-16 rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-xs font-mono text-white text-right"
                           />
                         </div>
@@ -1901,7 +2047,15 @@ export function ShipmentModal({
                       <div
                         onClick={() => {
                           setConsolidationAction('unpack_and_repack');
-                          setForwarderFee(unpackAndRepackFeePreset);
+                          const pkgCount = Math.max(
+                            1,
+                            selectedSourceShipmentsCount
+                          );
+                          const unitFee =
+                            parseFloat(unpackAndRepackFeePreset) || 0;
+                          setForwarderFee(
+                            String(Number((pkgCount * unitFee).toFixed(2)))
+                          );
                         }}
                         className={`cursor-pointer rounded-xl border p-3 transition flex items-center justify-between gap-2 ${
                           consolidationAction === 'unpack_and_repack'
@@ -1915,7 +2069,13 @@ export function ShipmentModal({
                             <span>Desempacotar + Agrupar</span>
                           </div>
                           <p className="text-[11px] text-slate-400">
-                            Tira das caixas individuais
+                            Por pacote ({selectedSourceShipmentsCount}x ={' '}
+                            {currSymbol}
+                            {(
+                              Math.max(1, selectedSourceShipmentsCount) *
+                              (parseFloat(unpackAndRepackFeePreset) || 0)
+                            ).toFixed(2)}
+                            )
                           </p>
                         </div>
                         <div
@@ -1933,8 +2093,16 @@ export function ShipmentModal({
                             onChange={(e) => {
                               setUnpackAndRepackFeePreset(e.target.value);
                               setConsolidationAction('unpack_and_repack');
-                              setForwarderFee(e.target.value);
+                              const pkgCount = Math.max(
+                                1,
+                                selectedSourceShipmentsCount
+                              );
+                              const unitFee = parseFloat(e.target.value) || 0;
+                              setForwarderFee(
+                                String(Number((pkgCount * unitFee).toFixed(2)))
+                              );
                             }}
+                            title="Taxa por pacote (ex: £3.60 c/ VAT)"
                             className="w-16 rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-xs font-mono text-white text-right"
                           />
                         </div>

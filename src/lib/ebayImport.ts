@@ -233,7 +233,7 @@ export function stripEbayArtifacts(str: string): string {
 
 function normalizeCase(str: string): string {
   if (!str) return str;
-  let trimmed = stripEbayArtifacts(str);
+  const trimmed = stripEbayArtifacts(str);
 
   if (KNOWN_UPPERCASE_BANDS.has(trimmed.toUpperCase())) {
     return trimmed.toUpperCase();

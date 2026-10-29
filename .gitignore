@@ -40,4 +40,5 @@ next-env.d.ts
 
 # local per-user data
 /data/users
+/data/sync.log
 
