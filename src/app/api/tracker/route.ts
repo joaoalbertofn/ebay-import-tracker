@@ -4,6 +4,7 @@ import {
   loadUserTrackerData,
   saveUserTrackerData,
 } from '@/lib/trackerStorage';
+import { validateTrackerPayload } from '@/lib/validation';
 
 export async function GET() {
   const { userId } = await auth();
@@ -23,17 +24,18 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    if (!Array.isArray(body.shipments) || !Array.isArray(body.cdItems)) {
+    const validation = validateTrackerPayload(body);
+    if (!validation.success || !validation.data) {
       return NextResponse.json(
-        { error: 'Invalid payload' },
+        { error: validation.error || 'Invalid payload' },
         { status: 400 }
       );
     }
 
     const { updatedAt } = await saveUserTrackerData(
       userId,
-      body.shipments,
-      body.cdItems
+      validation.data.shipments,
+      validation.data.cdItems
     );
 
     return NextResponse.json({ ok: true, updatedAt });

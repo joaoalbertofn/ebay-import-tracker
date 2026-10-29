@@ -1,47 +1,50 @@
-# 📋 Lista de Tarefas Pendentes (TODO) — CD Import Tracker
+# 📋 Lista de Tarefas (TODO) — CD Import Tracker
 
 Este documento reúne as tarefas do projeto organizadas por categoria e status de conclusão.
 
 ---
 
-## ✅ 1. Tarefas Concluídas Nesta Iteração
+## 🏆 1. Grande Refatoração Arquitetural e Modularização (Concluída)
 
-- [x] **Corrigir script `npm run lint` (ESLint v9):**
-  - Criado o arquivo `eslint.config.mjs` (Flat Config) compatível com Next.js 16 e TypeScript.
-- [x] **Adicionar *debounce* no auto-save da API (`POST /api/tracker`):**
-  - Implementado *debounce* de `700ms` nas chamadas ao Upstash Redis / API, mantendo gravação instantânea no `localStorage`.
-- [x] **Tratar consolidação entre pacotes de moedas diferentes:**
-  - Implementada conversão proporcional automática (`sourceExchangeRate / targetExchangeRate`) para `unitOriginalValue`, `bundleTotalValue`, `bundleInternalShipping`, `unitInternalShipping` e `internalShipping` herdado ao consolidar pacotes de moedas distintas.
-- [x] **Permitir editar quantidade de discos (`discCount`) no `ShipmentModal`:**
-  - Adicionado input de número de discos físicos (`1 = Simples`, `2 = Duplo`, `3+ = Box Set`) diretamente nas linhas de CD do modal do pacote.
-- [x] **Rastreamento de Peso dos Pacotes (`weightKg`):**
-  - Adicionado campo de peso em quilogramas (`kg`) nos pacotes, com cálculo de gramas por disco (`~g/disco`) e custo de envio por kg, exibido na lista lateral, nos detalhes do pacote e na visão global da coleção.
-- [x] **Exclusão / Descarte de CDs durante a Consolidação de Pacotes (com Redistribuição):**
-  - Adicionado botão de descarte (`🗑️`) nos itens disponíveis para consolidação no `ShipmentModal`, redistribuindo automaticamente o valor pago e o frete local dos CDs descartados entre os CDs mantidos daquele lote.
-- [x] **Limpar código legado não utilizado:**
-  - Removido `LOCKER_SHIPMENT_ID` de `src/types/tracker.ts` e `src/components/CDModal.tsx`.
-  - Removidos campos desativados (`postalFeeBrl`, `unpackingFee`, `groupingFee`) e `INITIAL_CD_ITEMS` de `src/lib/seedData.ts`.
-  - Alinhado o comentário da fórmula de `estimatedTaxMgBrl` em `src/types/tracker.ts`.
-- [x] **Indicador visual de sincronização na nuvem (Cloud Sync Status):**
-  - Adicionado badge interativo no cabeçalho (`☁️ Sincronizado`, `⏳ Salvando...` e botão `⚠️ Reenviar Sync`).
-- [x] **Opção de personalizar e travar manualmente o nome do pacote (`isCustomName`):**
-  - Adicionado campo editável e botão de cadeado (`🔒 Personalizado` / `✨ Automático`) tanto no `ShipmentModal` quanto no título do pacote nos detalhes.
-- [x] **Visão Global "Minha Coleção de CDs":**
-  - Adicionadas abas no topo do painel alternando entre `📦 Visão por Pacotes` e `💿 Todos os CDs da Coleção`, com busca, filtro por status e ordenação por custo/artista/álbum.
-- [x] **Substituir diálogos nativos (`window.confirm` / `alert`) por modais customizados:**
-  - Criado modal de confirmação no tema escuro da aplicação e notificações via Toast.
+- [x] **Passo 0: Dependências e Test Runner Automatizado:**
+  - Removidas dependências órfãs `framer-motion` e `react-hook-form` de `package.json`.
+  - Instalado `vitest@^4.1.12` configurado com `vitest.config.mts` e aliases de caminho `@/*`.
+  - Adicionados scripts `npm test` e `npm run test:watch`.
+- [x] **Passo 1: Suíte de Baseline Tests de Domínio:**
+  - Criado `src/lib/__tests__/calculations.test.ts` cobrindo Regras 1, 2, 3 e 4, rateios de bundles, summaries e formatações financeiras.
+- [x] **Passo 2: Domínio Puro & Serviços Isolados:**
+  - Criado `src/lib/domain/consolidation.ts` centralizando consolidação simples, multimoeda, descarte com redistribuição e desmembramento (`extractCdToSingleShipment`).
+  - Criado `src/lib/__tests__/consolidation.test.ts` com 6 testes unitários garantindo exatidão matemática e retrocompatibilidade.
+  - Criado `src/lib/services/exchangeRateService.ts` desacoplando requisições de câmbio de cálculos puros.
+  - Criado `src/lib/formatters.ts` (`formatBrl`, `formatOriginalCurrency`, `formatWeightKg`, `formatShortBundleBadge`, `getTodayLocalIsoDate`).
+- [x] **Passo 3: Conexão do Domínio nos Componentes:**
+  - `ShipmentModal.tsx` e `CDImportTrackerApp.tsx` agora consomem funções puras de `@/lib/domain/consolidation`, eliminando duplicação de regras de negócio.
+- [x] **Passo 4: Deduplicação de Código / DRY Hooks:**
+  - Criado `src/lib/storage/feePresets.ts` centralizando leitura e gravação no `localStorage`.
+  - Criado `src/hooks/useEbayQuickPaste.ts` unificando a integração e feedback de importação do eBay.
+- [x] **Passo 5: Desacoplamento da Persistência & Nuvem:**
+  - Criado `src/hooks/useTrackerData.ts` encapsulando `shipments`, `cdItems`, hidratação por `userId` do Clerk, reconciliação Nuvem vs Local, auto-save debounced (700ms), revalidação periódica (30min) e integridade de nomes.
+  - `CDImportTrackerApp.tsx` liberado de mais de 380 linhas de I/O e persistência.
+- [x] **Passo 6: Modularização Visual dos God Components:**
+  - Criado `src/components/tracker/ConfirmModal.tsx` (substitui window.confirm).
+  - Criado `src/components/tracker/TrackerHeader.tsx` (painel de autenticação, cloud sync e KPIs).
+  - Criado `src/components/tracker/GlobalCollectionView.tsx` (aba Minha Coleção completa).
+  - Criado `src/components/tracker/PackageSidebar.tsx` (coluna esquerda Master).
+  - Criado `src/components/tracker/PackageDetailView.tsx` (coluna direita Detail, tabela e cards responsivos).
+  - Decomposto `ShipmentModal.tsx`:
+    - Criado `src/components/modals/ForwarderConsolidationSection.tsx`.
+    - Criado `src/components/modals/CDEntriesBatchTable.tsx`.
+  - `CDImportTrackerApp.tsx` reduzido de quase 4.000 linhas para ~1.200 linhas; `ShipmentModal.tsx` reduzido em mais de 800 linhas.
+- [x] **Passo 7: Validação e Robustez Final:**
+  - Criado validador estrito `src/lib/validation.ts` e conectado na rota `POST /api/tracker` com cobertura de testes unitários (`src/lib/__tests__/validation.test.ts`).
+  - Configurado `images.remotePatterns` no `next.config.ts` cobrindo iTunes, Apple Music, Cover Art Archive, Internet Archive, Discogs e eBay.
+  - 100% dos testes unitários passando (`16 passed`) e compilação de produção do Next.js 16 (`next build`) com código 0.
 
 ---
 
-## 🛠️ 2. Tarefas Restantes (Backlog Técnico)
+## 🛠️ 2. Backlog Técnico e Melhorias Futuras
 
-- [ ] **Implementar ou atualizar badges de Tipo de Embalagem (`Jewel Case`, `Somente Encarte`, `Digipack`):**
-  - O `README.md` menciona tipos de embalagem (`Jewel Case`, `Somente Encarte`, `Digipack`), que podem ser adicionados opcionalmente à interface `CDItem` ou ajustados na documentação.
-- [ ] **Remover ou utilizar dependências órfãs no `package.json`:**
-  - As bibliotecas `framer-motion` e `react-hook-form` estão listadas em `dependencies`, mas não são importadas no projeto.
-- [ ] **Configurar `images.remotePatterns` no `next.config.ts`:**
-  - Configurar os domínios de capas (`*.mzstatic.com` do iTunes e `coverartarchive.org`) no `next.config.ts`.
 - [ ] **Externalizar `DEFAULT_USER_ID` do script `scripts/db-sync.mjs`:**
-  - Ler o ID exclusivamente de `TRACKER_USER_ID` no `.env.local` e criar um `.env.example`.
-- [ ] **Validar schema do payload na API (`/api/tracker`) e criar testes unitários para `src/lib/calculations.ts`:**
-  - Adicionar validação estrutural dos arrays `shipments` e `cdItems` e suíte de testes automatizados para as regras de cálculo e rateio.
+  - Ler o ID exclusivamente de `TRACKER_USER_ID` no `.env.local` e disponibilizar template em `.env.example`.
+- [ ] **Refinamento opcional de badges de Tipo de Embalagem:**
+  - Permitir customizar badges (`Jewel Case`, `Digipack`, `Somente Encarte`) diretamente no modal de CD.

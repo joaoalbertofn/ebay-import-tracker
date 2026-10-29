@@ -13,8 +13,8 @@ import {
   resolveCoverCycleOrFetch,
   searchAlbumCoverCandidates,
 } from '@/lib/coverArt';
+import { useEbayQuickPaste } from '@/hooks/useEbayQuickPaste';
 import {
-  EbayImportResult,
   extractEbayListingUrls,
   extractEbayOrderInfo,
 } from '@/lib/ebayImport';
@@ -118,11 +118,12 @@ export function CDModal({
   const [ebayListingUrl, setEbayListingUrl] = useState('');
   const [ebayOrderInput, setEbayOrderInput] = useState('');
   const [ebayQuickPasteInput, setEbayQuickPasteInput] = useState('');
-  const [isParsingEbay, setIsParsingEbay] = useState(false);
-  const [ebayImportFeedback, setEbayImportFeedback] = useState<{
-    type: 'success' | 'warning';
-    text: string;
-  } | null>(null);
+  const {
+    isParsingEbay,
+    ebayImportFeedback,
+    setEbayImportFeedback,
+    parseEbay,
+  } = useEbayQuickPaste();
 
   useEffect(() => {
     if (!isOpen) return;
@@ -184,7 +185,7 @@ export function CDModal({
         { artist: '', albumTitle: '', discCount: 1 },
       ]);
     }
-  }, [isOpen, editingItem]);
+  }, [isOpen, editingItem, setEbayImportFeedback]);
 
   if (!isOpen) return null;
 
@@ -342,143 +343,115 @@ export function CDModal({
   };
 
   const handleImportFromEbayInCDModal = async () => {
-    const raw = ebayQuickPasteInput.trim();
-    if (!raw) return;
+    const data = await parseEbay(ebayQuickPasteInput);
+    if (!data) return;
 
-    setIsParsingEbay(true);
-    setEbayImportFeedback(null);
+    if (data.ebayOrderUrl || data.ebayOrderId) {
+      setEbayOrderInput(data.ebayOrderUrl || data.ebayOrderId || '');
+    }
 
-    try {
-      const res = await fetch('/api/ebay/parse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: raw }),
+    if (data.internalShipping !== undefined && data.internalShipping >= 0) {
+      setBundleInternalShipping(String(Number(data.internalShipping.toFixed(2))));
+    }
+
+    if (data.localTrackingCode) {
+      setLocalTrackingCode(data.localTrackingCode.toUpperCase());
+    }
+
+    if (data.items && data.items.length === 1) {
+      const item = data.items[0];
+      if (!editingItem) setIsBundle(false);
+      setArtist(item.artist || '');
+      setAlbumTitle(item.albumTitle || item.rawTitle || '');
+      setDiscCount(String(item.discCount || 1));
+      if (item.unitPrice !== undefined && item.unitPrice >= 0) {
+        setDirectUnitValue(String(Number(item.unitPrice.toFixed(2))));
+      }
+      if (item.releaseYear) setReleaseYear(item.releaseYear);
+      if (item.coverUrl) setCoverUrl(item.coverUrl);
+      if (item.ebayListingUrl) setEbayListingUrl(item.ebayListingUrl);
+
+      // Busca capa oficial no iTunes/MusicBrainz
+      if (item.artist || item.albumTitle) {
+        searchAlbumCoverCandidates(item.artist, item.albumTitle)
+          .then((cands) => {
+            if (cands.length > 0) {
+              setCoverCandidates(cands);
+              setCoverUrl(cands[0].coverUrl);
+              if (cands[0].releaseYear) setReleaseYear(cands[0].releaseYear);
+            }
+          })
+          .catch(() => {});
+      }
+
+      setEbayQuickPasteInput('');
+      setEbayImportFeedback({
+        type: 'success',
+        text: `CD "${item.artist ? `${item.artist} - ` : ''}${item.albumTitle}" preenchido automaticamente!`,
       });
-
-      const data: EbayImportResult & { error?: string } = await res.json();
-
-      if (!res.ok || data.error) {
-        setEbayImportFeedback({
-          type: 'warning',
-          text: data.error || 'Não foi possível ler os dados informados.',
-        });
-        return;
-      }
-
-      if (data.ebayOrderUrl || data.ebayOrderId) {
-        setEbayOrderInput(data.ebayOrderUrl || data.ebayOrderId || '');
-      }
-
-      if (data.internalShipping !== undefined && data.internalShipping >= 0) {
-        setBundleInternalShipping(String(Number(data.internalShipping.toFixed(2))));
-      }
-
-      if (data.localTrackingCode) {
-        setLocalTrackingCode(data.localTrackingCode.toUpperCase());
-      }
-
-      if (data.items && data.items.length === 1) {
-        const item = data.items[0];
-        if (!editingItem) setIsBundle(false);
-        setArtist(item.artist || '');
-        setAlbumTitle(item.albumTitle || item.rawTitle || '');
-        setDiscCount(String(item.discCount || 1));
-        if (item.unitPrice !== undefined && item.unitPrice >= 0) {
-          setDirectUnitValue(String(Number(item.unitPrice.toFixed(2))));
+    } else if (data.items && data.items.length > 1 && !editingItem) {
+      setIsBundle(true);
+      setEnableBatchCreate(true);
+      setBundleTotalQuantity(String(data.items.length));
+      if (data.bundleTotalValue !== undefined && data.bundleTotalValue > 0) {
+        setBundleTotalValue(String(Number(data.bundleTotalValue.toFixed(2))));
+      } else {
+        const sumPrices = data.items.reduce(
+          (acc, i) => acc + (i.unitPrice || 0),
+          0
+        );
+        if (sumPrices > 0) {
+          setBundleTotalValue(String(Number(sumPrices.toFixed(2))));
         }
-        if (item.releaseYear) setReleaseYear(item.releaseYear);
-        if (item.coverUrl) setCoverUrl(item.coverUrl);
-        if (item.ebayListingUrl) setEbayListingUrl(item.ebayListingUrl);
+      }
+      const entries: BatchAlbumEntry[] = data.items.map((item) => ({
+        artist: item.artist || '',
+        albumTitle: item.albumTitle || item.rawTitle || '',
+        discCount: item.discCount || 1,
+        coverUrl: item.coverUrl,
+        releaseYear: item.releaseYear,
+        ebayListingUrl: item.ebayListingUrl,
+      }));
+      setBatchEntries(entries);
 
-        // Busca capa oficial no iTunes/MusicBrainz
-        if (item.artist || item.albumTitle) {
-          searchAlbumCoverCandidates(item.artist, item.albumTitle)
-            .then((cands) => {
-              if (cands.length > 0) {
-                setCoverCandidates(cands);
-                setCoverUrl(cands[0].coverUrl);
-                if (cands[0].releaseYear) setReleaseYear(cands[0].releaseYear);
+      entries.forEach((entry, idx) => {
+        if (entry.artist || entry.albumTitle) {
+          fetchBestAlbumCover(entry.artist, entry.albumTitle)
+            .then((best) => {
+              if (best?.coverUrl) {
+                setBatchEntries((curr) =>
+                  curr.map((row, rIdx) =>
+                    rIdx === idx
+                      ? {
+                          ...row,
+                          coverUrl: best.coverUrl,
+                          releaseYear: row.releaseYear || best.releaseYear,
+                        }
+                      : row
+                  )
+                );
               }
             })
             .catch(() => {});
         }
+      });
 
-        setEbayQuickPasteInput('');
-        setEbayImportFeedback({
-          type: 'success',
-          text: `CD "${item.artist ? `${item.artist} - ` : ''}${item.albumTitle}" preenchido automaticamente!`,
-        });
-      } else if (data.items && data.items.length > 1 && !editingItem) {
-        setIsBundle(true);
-        setEnableBatchCreate(true);
-        setBundleTotalQuantity(String(data.items.length));
-        if (data.bundleTotalValue !== undefined && data.bundleTotalValue > 0) {
-          setBundleTotalValue(String(Number(data.bundleTotalValue.toFixed(2))));
-        } else {
-          const sumPrices = data.items.reduce(
-            (acc, i) => acc + (i.unitPrice || 0),
-            0
-          );
-          if (sumPrices > 0) {
-            setBundleTotalValue(String(Number(sumPrices.toFixed(2))));
-          }
-        }
-        const entries: BatchAlbumEntry[] = data.items.map((item) => ({
-          artist: item.artist || '',
-          albumTitle: item.albumTitle || item.rawTitle || '',
-          discCount: item.discCount || 1,
-          coverUrl: item.coverUrl,
-          releaseYear: item.releaseYear,
-          ebayListingUrl: item.ebayListingUrl,
-        }));
-        setBatchEntries(entries);
-
-        entries.forEach((entry, idx) => {
-          if (entry.artist || entry.albumTitle) {
-            fetchBestAlbumCover(entry.artist, entry.albumTitle)
-              .then((best) => {
-                if (best?.coverUrl) {
-                  setBatchEntries((curr) =>
-                    curr.map((row, rIdx) =>
-                      rIdx === idx
-                        ? {
-                            ...row,
-                            coverUrl: best.coverUrl,
-                            releaseYear: row.releaseYear || best.releaseYear,
-                          }
-                        : row
-                    )
-                  );
-                }
-              })
-              .catch(() => {});
-          }
-        });
-
-        setEbayQuickPasteInput('');
-        setEbayImportFeedback({
-          type: 'success',
-          text: `${entries.length} CDs importados em modo Lote/Bundle!`,
-        });
-      } else if (data.warnings && data.warnings.length > 0) {
-        setEbayImportFeedback({
-          type: 'warning',
-          text: data.warnings[0],
-        });
-      } else if (data.ebayOrderId) {
-        setEbayQuickPasteInput('');
-        setEbayImportFeedback({
-          type: 'success',
-          text: `Pedido #${data.ebayOrderId} vinculado!`,
-        });
-      }
-    } catch {
+      setEbayQuickPasteInput('');
+      setEbayImportFeedback({
+        type: 'success',
+        text: `${entries.length} CDs importados em modo Lote/Bundle!`,
+      });
+    } else if (data.warnings && data.warnings.length > 0) {
       setEbayImportFeedback({
         type: 'warning',
-        text: 'Erro ao consultar dados do eBay.',
+        text: data.warnings[0],
       });
-    } finally {
-      setIsParsingEbay(false);
+    } else if (data.ebayOrderId) {
+      setEbayQuickPasteInput('');
+      setEbayImportFeedback({
+        type: 'success',
+        text: `Pedido #${data.ebayOrderId} vinculado!`,
+      });
     }
   };
 

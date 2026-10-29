@@ -9,9 +9,19 @@ import {
   ShipmentStatus,
 } from '@/types/tracker';
 import {
+  calculateConsolidationFee,
+  calculateInheritedInternalShipping,
+  calculateSelectedForwarderCdsValue,
+  countSourcePackagesForSelectedCds,
+} from '@/lib/domain/consolidation';
+import {
+  loadFeePresetsForCurrency,
+  saveFeePresetsForCurrency,
+} from '@/lib/storage/feePresets';
+import { useEbayQuickPaste } from '@/hooks/useEbayQuickPaste';
+import {
   CURRENCY_META,
   fetchLiveExchangeRate,
-  formatBrl,
   formatOriginalCurrency,
   generatePackageName,
   getTodayLocalIsoDate,
@@ -21,47 +31,22 @@ import {
   fetchBestAlbumCover,
   resolveCoverCycleOrFetch,
 } from '@/lib/coverArt';
-import {
-  EbayImportResult,
-  extractEbayOrderInfo,
-} from '@/lib/ebayImport';
-import { AlbumCover } from '@/components/AlbumCover';
+import { extractEbayOrderInfo } from '@/lib/ebayImport';
+import { ForwarderConsolidationSection } from '@/components/modals/ForwarderConsolidationSection';
+import { CDEntriesBatchTable } from '@/components/modals/CDEntriesBatchTable';
 import {
   X,
   Package,
   Calendar,
-  Coins,
   Truck,
   ShieldAlert,
   FileText,
   Sparkles,
-  Disc3,
-  CheckSquare,
-  Square,
-  PackageOpen,
-  PackageCheck,
-  Plus,
-  Trash2,
-  Loader2,
-  RefreshCw,
-  ChevronDown,
-  ChevronUp,
   Lock,
   Unlock,
   Scale,
-  RotateCcw,
-  ExternalLink,
-  Link2,
 } from 'lucide-react';
 
-const STORAGE_KEY_FEES = 'cd_import_tracker_forwarder_fees_v2';
-
-interface SavedForwarderFees {
-  [currency: string]: {
-    groupOnlyFee: number;
-    unpackAndRepackFee: number;
-  };
-}
 
 export interface InitialCDEntry {
   id?: string; // Presente quando representa um CD já existente no pacote em edição
@@ -182,6 +167,7 @@ export function ShipmentModal({
   const [rateSourceInfo, setRateSourceInfo] = useState<string>(
     'Cotação Automática'
   );
+  const [isFetchingLiveRate, setIsFetchingLiveRate] = useState(false);
   const [weightKg, setWeightKg] = useState<string>('');
   const [internalShipping, setInternalShipping] = useState<string>('0');
   const [forwarderFee, setForwarderFee] = useState<string>('0');
@@ -193,11 +179,12 @@ export function ShipmentModal({
     useState('');
   const [ebayOrderInput, setEbayOrderInput] = useState('');
   const [ebayQuickPasteInput, setEbayQuickPasteInput] = useState('');
-  const [isParsingEbay, setIsParsingEbay] = useState(false);
-  const [ebayImportFeedback, setEbayImportFeedback] = useState<{
-    type: 'success' | 'warning';
-    text: string;
-  } | null>(null);
+  const {
+    isParsingEbay,
+    ebayImportFeedback,
+    setEbayImportFeedback,
+    parseEbay,
+  } = useEbayQuickPaste();
   const [notes, setNotes] = useState('');
 
   // Campos para lançar/editar CDs direto no modal do pacote
@@ -231,27 +218,15 @@ export function ShipmentModal({
     );
   }, [forwarderPackages, editingShipment]);
 
-  const loadFeePresetsForCurrency = (curr: CurrencyCode) => {
-    let savedGroup = CURRENCY_META[curr].defaultGroupOnlyFee;
-    let savedUnpack = CURRENCY_META[curr].defaultUnpackAndRepackFee;
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY_FEES);
-      if (raw) {
-        const parsed: SavedForwarderFees = JSON.parse(raw);
-        if (parsed[curr]) {
-          savedGroup = parsed[curr].groupOnlyFee;
-          savedUnpack = parsed[curr].unpackAndRepackFee;
-        }
-      }
-    } catch {
-      // ignora
-    }
+  const syncFeePresetsToState = (curr: CurrencyCode) => {
+    const { savedGroup, savedUnpack } = loadFeePresetsForCurrency(curr);
     setGroupOnlyFeePreset(String(savedGroup));
     setUnpackAndRepackFeePreset(String(savedUnpack));
     return { savedGroup, savedUnpack };
   };
 
   const handleFetchLiveRate = async (targetCurrency: CurrencyCode) => {
+    setIsFetchingLiveRate(true);
     try {
       const result = await fetchLiveExchangeRate(targetCurrency);
       setExchangeRate(result.rate);
@@ -259,6 +234,8 @@ export function ShipmentModal({
     } catch {
       setExchangeRate(CURRENCY_META[targetCurrency].defaultRate);
       setRateSourceInfo('Cotação Automática de Referência');
+    } finally {
+      setIsFetchingLiveRate(false);
     }
   };
 
@@ -334,7 +311,7 @@ export function ShipmentModal({
           { artist: '', albumTitle: '', unitPrice: '', discCount: 1 },
         ]);
       }
-      loadFeePresetsForCurrency(editingShipment.currency);
+      syncFeePresetsToState(editingShipment.currency);
     } else {
       setName('');
       setIsCustomName(false);
@@ -357,7 +334,7 @@ export function ShipmentModal({
       setCdEntries([
         { artist: '', albumTitle: '', unitPrice: '', discCount: 1 },
       ]);
-      const { savedUnpack } = loadFeePresetsForCurrency('GBP');
+      const { savedUnpack } = syncFeePresetsToState('GBP');
       handleFetchLiveRate('GBP');
 
       if (initialPreselectedPackageIds.length > 0) {
@@ -386,163 +363,136 @@ export function ShipmentModal({
     editingShipmentItems,
     forwarderPackages,
     initialPreselectedPackageIds,
+    setEbayImportFeedback,
   ]);
 
   const handleImportFromEbay = async () => {
-    const raw = ebayQuickPasteInput.trim();
-    if (!raw) return;
+    const data = await parseEbay(ebayQuickPasteInput);
+    if (!data) return;
 
-    setIsParsingEbay(true);
-    setEbayImportFeedback(null);
+    if (data.ebayOrderUrl || data.ebayOrderId) {
+      setEbayOrderInput(data.ebayOrderUrl || data.ebayOrderId || '');
+    }
 
-    try {
-      const res = await fetch('/api/ebay/parse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: raw }),
+    if (data.currency && data.currency !== currency) {
+      handleCurrencyChange(data.currency);
+    }
+
+    if (data.internalShipping !== undefined && data.internalShipping >= 0) {
+      setInternalShipping(String(Number(data.internalShipping.toFixed(2))));
+    }
+
+    if (data.localTrackingCode) {
+      setLocalTrackingCode(data.localTrackingCode.toUpperCase());
+    }
+
+    if (data.items && data.items.length > 0) {
+      // Verifica se todos os itens têm preços distintos (compra multi-item) ou se fazem parte de um lote único (bundle)
+      const hasDistinctIndividualPrices =
+        data.items.length > 1 &&
+        data.items.some(
+          (item, _, arr) =>
+            item.unitPrice !== undefined &&
+            arr[0].unitPrice !== undefined &&
+            Math.abs(item.unitPrice - arr[0].unitPrice) > 0.01
+        );
+
+      const importedEntries: InitialCDEntry[] = data.items.map((item) => ({
+        artist: item.artist || '',
+        albumTitle: item.albumTitle || item.rawTitle || '',
+        unitPrice:
+          hasDistinctIndividualPrices &&
+          item.unitPrice !== undefined &&
+          item.unitPrice >= 0
+            ? String(Number(item.unitPrice.toFixed(2)))
+            : '',
+        discCount: item.discCount || 1,
+        coverUrl: item.coverUrl,
+        releaseYear: item.releaseYear,
+        ebayListingUrl: item.ebayListingUrl,
+      }));
+
+      // Mantém apenas CDs já salvos no banco (com id); substitui rascunhos não salvos para não duplicar ao testar várias vezes
+      const savedEntries = cdEntries.filter((e) => Boolean(e.id));
+      const nextEntries =
+        savedEntries.length > 0
+          ? [...savedEntries, ...importedEntries]
+          : importedEntries;
+
+      setCdEntries(nextEntries);
+
+      if (data.bundleTotalValue !== undefined && data.bundleTotalValue > 0) {
+        setBundleTotalValue(String(Number(data.bundleTotalValue.toFixed(2))));
+      } else {
+        const sumPrices = data.items.reduce(
+          (acc, e) => acc + Math.max(0, e.unitPrice || 0),
+          0
+        );
+        if (sumPrices > 0) {
+          setBundleTotalValue(String(Number(sumPrices.toFixed(2))));
+        }
+      }
+
+      // Busca capas de álbum em alta resolução (iTunes/MusicBrainz) em background para os itens importados
+      nextEntries.forEach((entry, idx) => {
+        if (
+          (entry.artist.trim() || entry.albumTitle.trim()) &&
+          !entry.albumTitle.startsWith('CD #')
+        ) {
+          fetchBestAlbumCover(entry.artist, entry.albumTitle)
+            .then((best) => {
+              if (best?.coverUrl) {
+                setCdEntries((curr) =>
+                  curr.map((row, rIdx) =>
+                    rIdx === idx
+                      ? {
+                          ...row,
+                          coverUrl: best.coverUrl,
+                          releaseYear: row.releaseYear || best.releaseYear,
+                        }
+                      : row
+                  )
+                );
+              }
+            })
+            .catch(() => {
+              // mantém a foto do anúncio se houver
+            });
+        }
       });
 
-      const data: EbayImportResult & { error?: string } = await res.json();
-
-      if (!res.ok || data.error) {
-        setEbayImportFeedback({
-          type: 'warning',
-          text: data.error || 'Não foi possível ler os dados informados.',
-        });
-        return;
-      }
-
-      if (data.ebayOrderUrl || data.ebayOrderId) {
-        setEbayOrderInput(data.ebayOrderUrl || data.ebayOrderId || '');
-      }
-
-      if (data.currency && data.currency !== currency) {
-        handleCurrencyChange(data.currency);
-      }
-
-      if (data.internalShipping !== undefined && data.internalShipping >= 0) {
-        setInternalShipping(String(Number(data.internalShipping.toFixed(2))));
-      }
-
-      if (data.localTrackingCode) {
-        setLocalTrackingCode(data.localTrackingCode.toUpperCase());
-      }
-
-      if (data.items && data.items.length > 0) {
-        // Verifica se todos os itens têm preços distintos (compra multi-item) ou se fazem parte de um lote único (bundle)
-        const hasDistinctIndividualPrices =
-          data.items.length > 1 &&
-          data.items.some(
-            (item, _, arr) =>
-              item.unitPrice !== undefined &&
-              arr[0].unitPrice !== undefined &&
-              Math.abs(item.unitPrice - arr[0].unitPrice) > 0.01
-          );
-
-        const importedEntries: InitialCDEntry[] = data.items.map((item) => ({
-          artist: item.artist || '',
-          albumTitle: item.albumTitle || item.rawTitle || '',
-          unitPrice:
-            hasDistinctIndividualPrices &&
-            item.unitPrice !== undefined &&
-            item.unitPrice >= 0
-              ? String(Number(item.unitPrice.toFixed(2)))
-              : '',
-          discCount: item.discCount || 1,
-          coverUrl: item.coverUrl,
-          releaseYear: item.releaseYear,
-          ebayListingUrl: item.ebayListingUrl,
-        }));
-
-        // Mantém apenas CDs já salvos no banco (com id); substitui rascunhos não salvos para não duplicar ao testar várias vezes
-        const savedEntries = cdEntries.filter((e) => Boolean(e.id));
-        const nextEntries =
-          savedEntries.length > 0
-            ? [...savedEntries, ...importedEntries]
-            : importedEntries;
-
-        setCdEntries(nextEntries);
-
-        if (data.bundleTotalValue !== undefined && data.bundleTotalValue > 0) {
-          setBundleTotalValue(String(Number(data.bundleTotalValue.toFixed(2))));
-        } else {
-          const sumPrices = data.items.reduce(
-            (acc, e) => acc + Math.max(0, e.unitPrice || 0),
-            0
-          );
-          if (sumPrices > 0) {
-            setBundleTotalValue(String(Number(sumPrices.toFixed(2))));
-          }
-        }
-
-        // Busca capas de álbum em alta resolução (iTunes/MusicBrainz) em background para os itens importados
-        nextEntries.forEach((entry, idx) => {
-          if (
-            (entry.artist.trim() || entry.albumTitle.trim()) &&
-            !entry.albumTitle.startsWith('CD #')
-          ) {
-            fetchBestAlbumCover(entry.artist, entry.albumTitle)
-              .then((best) => {
-                if (best?.coverUrl) {
-                  setCdEntries((curr) =>
-                    curr.map((row, rIdx) =>
-                      rIdx === idx
-                        ? {
-                            ...row,
-                            coverUrl: best.coverUrl,
-                            releaseYear: row.releaseYear || best.releaseYear,
-                          }
-                        : row
-                    )
-                  );
-                }
-              })
-              .catch(() => {
-                // mantém a foto do anúncio se houver
-              });
-          }
-        });
-
-        setEbayQuickPasteInput('');
-        setEbayImportFeedback({
-          type: 'success',
-          text: `${importedEntries.length} ${
-            importedEntries.length === 1 ? 'CD importado' : 'CDs importados'
-          }${
-            data.ebayOrderId ? ` + Pedido #${data.ebayOrderId} vinculado` : ''
-          }! Confira os campos abaixo.`,
-        });
-      } else if (data.warnings && data.warnings.length > 0) {
-        setEbayImportFeedback({
-          type: 'warning',
-          text: data.warnings[0],
-        });
-      } else if (data.ebayOrderId) {
-        setEbayQuickPasteInput('');
-        setEbayImportFeedback({
-          type: 'success',
-          text: `Pedido #${data.ebayOrderId} vinculado ao pacote!`,
-        });
-      } else {
-        setEbayImportFeedback({
-          type: 'warning',
-          text: 'Nenhum CD ou link do eBay foi identificado. Cole o link do anúncio (ebay.com/itm/...), o link do pedido ou o texto copiado da tela do pedido.',
-        });
-      }
-    } catch {
+      setEbayQuickPasteInput('');
+      setEbayImportFeedback({
+        type: 'success',
+        text: `${importedEntries.length} ${
+          importedEntries.length === 1 ? 'CD importado' : 'CDs importados'
+        }${
+          data.ebayOrderId ? ` + Pedido #${data.ebayOrderId} vinculado` : ''
+        }! Confira os campos abaixo.`,
+      });
+    } else if (data.warnings && data.warnings.length > 0) {
       setEbayImportFeedback({
         type: 'warning',
-        text: 'Falha ao consultar dados do eBay. Verifique o link ou texto colado.',
+        text: data.warnings[0],
       });
-    } finally {
-      setIsParsingEbay(false);
+    } else if (data.ebayOrderId) {
+      setEbayQuickPasteInput('');
+      setEbayImportFeedback({
+        type: 'success',
+        text: `Pedido #${data.ebayOrderId} vinculado ao pacote!`,
+      });
+    } else {
+      setEbayImportFeedback({
+        type: 'warning',
+        text: 'Nenhum CD ou link do eBay foi identificado. Cole o link do anúncio (ebay.com/itm/...), o link do pedido ou o texto copiado da tela do pedido.',
+      });
     }
   };
 
   const handleCurrencyChange = (newCurr: CurrencyCode) => {
     setCurrency(newCurr);
     setExchangeRate(CURRENCY_META[newCurr].defaultRate);
-    const { savedGroup, savedUnpack } = loadFeePresetsForCurrency(newCurr);
+    const { savedGroup, savedUnpack } = syncFeePresetsToState(newCurr);
     if (selectedExistingCdIds.size > 0) {
       const pkgCount = Math.max(1, selectedSourceShipmentsCount);
       const unitFee =
@@ -664,88 +614,40 @@ export function ShipmentModal({
     });
   };
 
-  const handleSetCdCount = (val: string) => {
-    const num = Math.min(30, Math.max(1, parseInt(val, 10) || 1));
-    setCdEntries((prev) => {
-      const next: InitialCDEntry[] = [];
-      const defaultArtist = prev[0]?.artist || '';
-      for (let i = 0; i < num; i++) {
-        next.push(
-          prev[i] || {
-            artist: defaultArtist,
-            albumTitle: '',
-            unitPrice: '',
-            discCount: 1,
-          }
-        );
-      }
-      return next;
-    });
-  };
-
   const parsedRate = Math.max(0.0001, Number(exchangeRate) || 1);
 
   // Calcula o Frete Interno Local herdado proporcionalmente dos pacotes que estão disponíveis para consolidação
   // Considerando a conversão de moeda (caso origem != destino) e a redistribuição dos CDs descartados
-  const inheritedInternalShippingFromSelected = useMemo(() => {
-    if (selectedExistingCdIds.size === 0) return 0;
-    let inherited = 0;
-    for (const fp of eligibleForwarderPackages) {
-      const keptItemsInPkg = fp.items.filter(
-        (cd) => !discardedExistingCdIds.has(cd.id)
-      );
-      const keptCount = keptItemsInPkg.length;
-      if (keptCount === 0) continue;
-
-      const selectedCdsInPkg = keptItemsInPkg.filter((cd) =>
-        selectedExistingCdIds.has(cd.id)
-      ).length;
-      if (selectedCdsInPkg === 0) continue;
-
-      const shipLevelInternal = Number(fp.shipment.internalShipping) || 0;
-      if (shipLevelInternal > 0) {
-        const sourceRate =
-          Number(fp.shipment.exchangeRate) ||
-          CURRENCY_META[fp.shipment.currency]?.defaultRate ||
-          1;
-        const conversionFactor =
-          fp.shipment.currency === currency ? 1 : sourceRate / parsedRate;
-
-        inherited +=
-          shipLevelInternal *
-          conversionFactor *
-          (selectedCdsInPkg / keptCount);
-      }
-    }
-    return Number(inherited.toFixed(4));
-  }, [
-    eligibleForwarderPackages,
-    selectedExistingCdIds,
-    discardedExistingCdIds,
-    currency,
-    parsedRate,
-  ]);
+  const inheritedInternalShippingFromSelected = useMemo(
+    () =>
+      calculateInheritedInternalShipping(
+        eligibleForwarderPackages,
+        selectedExistingCdIds,
+        discardedExistingCdIds,
+        currency,
+        parsedRate
+      ),
+    [
+      eligibleForwarderPackages,
+      selectedExistingCdIds,
+      discardedExistingCdIds,
+      currency,
+      parsedRate,
+    ]
+  );
 
   // Conta quantos pacotes distintos do redirecionador tiveram itens selecionados
-  const selectedSourceShipmentsCount = useMemo(() => {
-    let count = 0;
-    for (const fp of eligibleForwarderPackages) {
-      if (fp.items.some((cd) => selectedExistingCdIds.has(cd.id))) {
-        count++;
-      }
-    }
-    return count;
-  }, [eligibleForwarderPackages, selectedExistingCdIds]);
+  const selectedSourceShipmentsCount = useMemo(
+    () =>
+      countSourcePackagesForSelectedCds(
+        eligibleForwarderPackages,
+        selectedExistingCdIds
+      ),
+    [eligibleForwarderPackages, selectedExistingCdIds]
+  );
 
-  const countSourcePackagesForSet = (cdIdSet: Set<string>): number => {
-    let count = 0;
-    for (const fp of eligibleForwarderPackages) {
-      if (fp.items.some((cd) => cdIdSet.has(cd.id))) {
-        count++;
-      }
-    }
-    return count;
-  };
+  const countSourcePackagesForSet = (cdIdSet: Set<string>): number =>
+    countSourcePackagesForSelectedCds(eligibleForwarderPackages, cdIdSet);
 
   const applyPresetFeeForSelection = (
     nextSelectedSet: Set<string>,
@@ -754,11 +656,14 @@ export function ShipmentModal({
   ) => {
     if (nextSelectedSet.size > 0) {
       const pkgCount = Math.max(1, countSourcePackagesForSet(nextSelectedSet));
-      const unitFee =
-        actionMode === 'group_only'
-          ? parseFloat(groupOnlyFeePreset) || 0
-          : parseFloat(unpackAndRepackFeePreset) || 0;
-      const totalFee = Number((pkgCount * unitFee).toFixed(2));
+      const groupOnlyUnit = parseFloat(groupOnlyFeePreset) || 0;
+      const unpackUnit = parseFloat(unpackAndRepackFeePreset) || 0;
+      const totalFee = calculateConsolidationFee(
+        pkgCount,
+        actionMode,
+        groupOnlyUnit,
+        unpackUnit
+      );
       setForwarderFee(String(totalFee));
       if (status === 'comprado' || status === 'no_redirecionador') {
         setStatus('consolidado');
@@ -907,51 +812,23 @@ export function ShipmentModal({
   );
 
   // Soma do valor dos CDs selecionados na consolidação (convertidos para a moeda atual, considerando redistribuição de descartados)
-  const selectedForwarderCdsValueInTargetCurr = useMemo(() => {
-    if (selectedExistingCdIds.size === 0) return 0;
-    let total = 0;
-    for (const fp of eligibleForwarderPackages) {
-      const nonDiscarded = fp.items.filter(
-        (cd) => !discardedExistingCdIds.has(cd.id)
-      );
-      if (nonDiscarded.length === 0) continue;
-      const selectedInPkg = nonDiscarded.filter((cd) =>
-        selectedExistingCdIds.has(cd.id)
-      );
-      if (selectedInPkg.length === 0) continue;
-
-      const sourceRate =
-        Number(fp.shipment.exchangeRate) ||
-        CURRENCY_META[fp.shipment.currency]?.defaultRate ||
-        1;
-      const conversionFactor =
-        fp.shipment.currency === currency ? 1 : sourceRate / parsedRate;
-
-      const discardedCount = fp.items.length - nonDiscarded.length;
-      if (discardedCount > 0) {
-        const pkgTotalOrig = fp.items.reduce(
-          (acc, cd) => acc + (Number(cd.unitOriginalValue) || 0),
-          0
-        );
-        const redistributedUnit = pkgTotalOrig / nonDiscarded.length;
-        total +=
-          redistributedUnit * selectedInPkg.length * conversionFactor;
-      } else {
-        const selectedSumOrig = selectedInPkg.reduce(
-          (acc, cd) => acc + (Number(cd.unitOriginalValue) || 0),
-          0
-        );
-        total += selectedSumOrig * conversionFactor;
-      }
-    }
-    return Number(total.toFixed(2));
-  }, [
-    eligibleForwarderPackages,
-    selectedExistingCdIds,
-    discardedExistingCdIds,
-    currency,
-    parsedRate,
-  ]);
+  const selectedForwarderCdsValueInTargetCurr = useMemo(
+    () =>
+      calculateSelectedForwarderCdsValue(
+        eligibleForwarderPackages,
+        selectedExistingCdIds,
+        discardedExistingCdIds,
+        currency,
+        parsedRate
+      ),
+    [
+      eligibleForwarderPackages,
+      selectedExistingCdIds,
+      discardedExistingCdIds,
+      currency,
+      parsedRate,
+    ]
+  );
 
   const filledCdEntries = cdEntries.filter(
     (e) =>
@@ -988,20 +865,11 @@ export function ShipmentModal({
     e.preventDefault();
 
     if (selectedExistingCdIds.size > 0) {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY_FEES);
-        const parsed: SavedForwarderFees = raw ? JSON.parse(raw) : {};
-        parsed[currency] = {
-          groupOnlyFee: Math.max(0, parseFloat(groupOnlyFeePreset) || 0),
-          unpackAndRepackFee: Math.max(
-            0,
-            parseFloat(unpackAndRepackFeePreset) || 0
-          ),
-        };
-        localStorage.setItem(STORAGE_KEY_FEES, JSON.stringify(parsed));
-      } catch {
-        // ignora
-      }
+      saveFeePresetsForCurrency(
+        currency,
+        parseFloat(groupOnlyFeePreset) || 0,
+        parseFloat(unpackAndRepackFeePreset) || 0
+      );
     }
 
     const validCdEntries = cdEntries.filter(
@@ -1212,906 +1080,91 @@ export function ShipmentModal({
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
           {/* Corpo com Scroll */}
           <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1">
-            {/* =====================================================================
-                BLOCO 1 (TOPO): CDs DESTE PACOTE + MOEDA E CÂMBIO AUTOMÁTICO
-                ===================================================================== */}
-            <div className="rounded-xl bg-purple-950/20 border border-purple-500/35 p-4 space-y-3.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <span className="text-xs font-semibold uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
-                    <Disc3 className="w-4 h-4 text-purple-400" />
-                    {editingShipment
-                      ? `CDs deste Pacote (${cdEntries.length})`
-                      : selectedExistingCdIds.size > 0
-                      ? `Adicionar também Novos CDs (${currSymbol})`
-                      : `CDs deste Pacote (${currency})`}
-                  </span>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    {isCustomName ? (
-                      <>
-                        Nome personalizado travado:{' '}
-                        <strong className="text-amber-300">
-                          {effectivePackageName}
-                        </strong>
-                      </>
-                    ) : (
-                      <>
-                        O nome do pacote (
-                        <strong className="text-slate-200">
-                          {autoGeneratedName}
-                        </strong>
-                        ) é gerado automaticamente pelos CDs abaixo.
-                      </>
-                    )}
-                  </p>
-                </div>
+            <CDEntriesBatchTable
+              editingShipment={editingShipment}
+              cdEntries={cdEntries}
+              currency={currency}
+              currSymbol={currSymbol}
+              exchangeRate={exchangeRate}
+              isCustomName={isCustomName}
+              effectivePackageName={effectivePackageName}
+              autoGeneratedName={autoGeneratedName}
+              selectedExistingCdIdsSize={selectedExistingCdIds.size}
+              bundleTotalValue={bundleTotalValue}
+              bundleLocalTracking={localTrackingCode}
+              hasIndividualPrices={hasIndividualPrices}
+              parsedBundleVal={parsedBundleVal}
+              parsedBundleQty={parsedBundleQty}
+              unitOriginalPreview={unitOriginalPreview}
+              parsedRate={parsedRate}
+              ebayQuickPasteInput={ebayQuickPasteInput}
+              isParsingEbay={isParsingEbay}
+              ebayImportFeedback={ebayImportFeedback}
+              isLoadingRate={isFetchingLiveRate}
+              onAddCdEntryRow={handleAddCdEntryRow}
+              onRemoveCdEntryRow={handleRemoveCdEntryRow}
+              onUpdateCdEntry={handleUpdateCdEntry}
+              onFetchOrCycleCover={handleFetchOrCycleCoverForIndex}
+              onEbayQuickPasteChange={setEbayQuickPasteInput}
+              onImportFromEbay={handleImportFromEbay}
+              onChangeCurrency={(newCurr) => {
+                setCurrency(newCurr);
+                setIsCustomName(false);
+              }}
+              onChangeExchangeRate={setExchangeRate}
+              onRefreshExchangeRate={() => handleFetchLiveRate(currency)}
+              onChangeBundleTotalValue={setBundleTotalValue}
+              onChangeBundleLocalTracking={setLocalTrackingCode}
+            />
 
-                <button
-                  type="button"
-                  onClick={handleAddCdEntryRow}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-400/40 px-3 py-1.5 text-xs font-semibold text-purple-200 transition"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Adicionar CD
-                </button>
-              </div>
-
-              {/* ⚡ Preenchimento Rápido do eBay (Link do Anúncio, Link do Pedido ou Texto do Pedido) */}
-              <div className="rounded-xl bg-slate-950/85 border border-indigo-500/35 p-3 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                    ⚡ Importar Rápido do eBay (Anúncio ou Pedido)
-                  </span>
-                  <span className="text-[10px] text-slate-400">
-                    Cole link(s) <code className="text-indigo-300">ebay.../itm/...</code>, link <code className="text-indigo-300">order.ebay.com/...</code> ou texto copiado do pedido
-                  </span>
-                </div>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <textarea
-                    rows={1}
-                    placeholder="Cole aqui o link do anúncio (ebay.co.uk/itm/...), link do pedido ou texto copiado do pedido..."
-                    value={ebayQuickPasteInput}
-                    onChange={(e) => setEbayQuickPasteInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleImportFromEbay();
-                      }
-                    }}
-                    className="flex-1 rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-400 focus:outline-none resize-y min-h-[38px]"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleImportFromEbay}
-                    disabled={isParsingEbay || !ebayQuickPasteInput.trim()}
-                    className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 px-4 py-2 text-xs font-semibold text-white transition shrink-0"
-                  >
-                    {isParsingEbay ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        Lendo eBay...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-3.5 h-3.5" />
-                        Preencher Dados
-                      </>
-                    )}
-                  </button>
-                </div>
-                {ebayImportFeedback && (
-                  <p
-                    className={`text-[11px] px-2.5 py-1.5 rounded-lg border ${
-                      ebayImportFeedback.type === 'success'
-                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                        : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                    }`}
-                  >
-                    {ebayImportFeedback.text}
-                  </p>
-                )}
-              </div>
-
-              {/* Linha de Moeda/Câmbio + Valor Total, Qtd de CDs e Rastreio Local */}
-              <div className="grid grid-cols-2 sm:grid-cols-12 gap-3">
-                {/* Moeda e Câmbio Automático */}
-                <div className="col-span-2 sm:col-span-4">
-                  <label className="block text-xs text-slate-300 mb-1">
-                    <span className="inline-flex items-center gap-1">
-                      <Coins className="w-3.5 h-3.5 text-amber-400" /> Moeda (
-                      {parsedRate.toFixed(2)} R$)
-                    </span>
-                  </label>
-                  <select
-                    value={currency}
-                    onChange={(e) =>
-                      handleCurrencyChange(e.target.value as CurrencyCode)
-                    }
-                    title={`${rateSourceInfo} (1 ${currency} ≈ R$ ${parsedRate.toFixed(
-                      2
-                    )})`}
-                    className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-base sm:text-sm text-white focus:border-purple-400 focus:outline-none"
-                  >
-                    {Object.entries(CURRENCY_META).map(([code, meta]) => (
-                      <option key={code} value={code}>
-                        {code} ({meta.symbol}) ≈ R${' '}
-                        {code === currency
-                          ? parsedRate.toFixed(2)
-                          : meta.defaultRate.toFixed(2)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="col-span-1 sm:col-span-3">
-                  <label className="block text-xs text-slate-300 mb-1">
-                    Valor Total ({currSymbol})
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono text-purple-300">
-                      {currSymbol}
-                    </span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="Soma / lote"
-                      value={
-                        hasIndividualPrices
-                          ? String(Number(sumOfIndividualPrices.toFixed(2)))
-                          : bundleTotalValue
-                      }
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setBundleTotalValue(val);
-                        if (hasIndividualPrices) {
-                          setCdEntries((prev) =>
-                            prev.map((item) => ({ ...item, unitPrice: '' }))
-                          );
-                        }
-                      }}
-                      className="w-full rounded-xl bg-slate-950 border border-purple-500/50 pl-7 pr-2.5 py-2 text-base sm:text-sm text-white font-mono focus:border-purple-400 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="col-span-1 sm:col-span-2">
-                  <label className="block text-xs text-slate-300 mb-1">
-                    Qtd. CDs
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="30"
-                    value={cdEntries.length}
-                    onChange={(e) => handleSetCdCount(e.target.value)}
-                    className="w-full rounded-xl bg-slate-950 border border-slate-700 px-2.5 py-2 text-base sm:text-sm text-white font-mono text-center focus:border-purple-400 focus:outline-none"
-                  />
-                </div>
-
-                <div className="col-span-2 sm:col-span-3">
-                  <label className="block text-xs text-slate-300 mb-1">
-                    Rastreio Local (Opc.)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ex: RM123456GB"
-                    value={localTrackingCode}
-                    onChange={(e) =>
-                      setLocalTrackingCode(e.target.value.toUpperCase())
-                    }
-                    className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-base sm:text-sm text-white font-mono uppercase placeholder-slate-600 focus:border-purple-400 focus:outline-none"
-                  />
-                </div>
-
-                {/* Campo dedicado para Link ou Número do Pedido eBay */}
-                <div className="col-span-2 sm:col-span-12">
-                  <label className="block text-xs text-slate-300 mb-1 flex items-center justify-between gap-2">
-                    <span className="inline-flex items-center gap-1">
-                      <Link2 className="w-3.5 h-3.5 text-sky-400" /> Link ou Nº do Pedido no eBay (Opcional)
-                    </span>
-                    {(() => {
-                      const info = extractEbayOrderInfo(ebayOrderInput);
-                      const href =
-                        info.ebayOrderUrl ||
-                        (ebayOrderInput.trim().startsWith('http')
-                          ? ebayOrderInput.trim()
-                          : '');
-                      if (!href) return null;
-                      return (
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[11px] font-mono text-sky-300 hover:text-sky-200 underline"
-                        >
-                          {info.ebayOrderId
-                            ? `Abrir Pedido #${info.ebayOrderId}`
-                            : 'Abrir Pedido no eBay'}
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      );
-                    })()}
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ex: https://order.ebay.com/ord/show?orderId=04-15363-94135... ou apenas 04-15363-94135"
-                    value={ebayOrderInput}
-                    onChange={(e) => setEbayOrderInput(e.target.value)}
-                    className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-white font-mono placeholder-slate-600 focus:border-purple-400 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Lista de Linhas de CD (Responsiva no Mobile e Desktop + Nº de Discos) */}
-              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                {cdEntries.map((entry, idx) => {
-                  const totalCands = entry.coverCandidates?.length || 0;
-                  const currentCandNum = (entry.coverCandidateIndex ?? 0) + 1;
-
-                  return (
-                    <div
-                      key={entry.id || idx}
-                      className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl bg-slate-950/90 border border-slate-800 p-2.5"
-                    >
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        {/* Miniatura da Capa */}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleFetchOrCycleCoverForIndex(idx, true)
-                          }
-                          title={
-                            totalCands > 1
-                              ? `Trocar capa (Opção ${currentCandNum} de ${totalCands})`
-                              : 'Buscar opções de capa deste álbum'
-                          }
-                          className="relative h-11 w-11 rounded-lg bg-slate-900 border border-slate-700 flex items-center justify-center overflow-hidden shrink-0 hover:border-purple-400 transition"
-                        >
-                          {entry.isFetchingCover ? (
-                            <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
-                          ) : (
-                            <>
-                              <AlbumCover
-                                src={entry.coverUrl}
-                                alt={entry.albumTitle || 'Capa'}
-                                iconClassName="w-5 h-5 text-slate-600 hover:text-purple-400"
-                              />
-                              {entry.coverUrl && totalCands > 1 && (
-                                <span className="absolute bottom-0 right-0 bg-black/80 text-[8px] font-mono text-purple-200 px-1 rounded-tl">
-                                  {currentCandNum}/{totalCands}
-                                </span>
-                              )}
-                            </>
-                          )}
-                        </button>
-
-                        {/* Inputs Banda & Disco */}
-                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 flex-1 min-w-0">
-                          <div className="sm:col-span-5">
-                            <input
-                              type="text"
-                              placeholder="Artista / Banda"
-                              value={entry.artist}
-                              onChange={(e) =>
-                                handleUpdateCdEntry(
-                                  idx,
-                                  'artist',
-                                  e.target.value
-                                )
-                              }
-                              onBlur={() => {
-                                if (
-                                  entry.artist.trim() &&
-                                  entry.albumTitle.trim() &&
-                                  !entry.coverUrl
-                                ) {
-                                  handleFetchOrCycleCoverForIndex(idx, false);
-                                }
-                              }}
-                              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 text-base sm:text-xs text-white placeholder-slate-500 focus:border-purple-400 focus:outline-none"
-                            />
-                          </div>
-
-                          <div className="sm:col-span-7">
-                            <input
-                              type="text"
-                              placeholder="Título do Álbum"
-                              value={entry.albumTitle}
-                              onChange={(e) =>
-                                handleUpdateCdEntry(
-                                  idx,
-                                  'albumTitle',
-                                  e.target.value
-                                )
-                              }
-                              onBlur={() => {
-                                if (
-                                  entry.albumTitle.trim() &&
-                                  !entry.coverUrl
-                                ) {
-                                  handleFetchOrCycleCoverForIndex(idx, false);
-                                }
-                              }}
-                              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 text-base sm:text-xs text-white placeholder-slate-500 focus:border-purple-400 focus:outline-none"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Nº Discos + Preço Individual + Botão Capa + Excluir */}
-                      <div className="flex items-center justify-end gap-1.5 sm:shrink-0 pl-13 sm:pl-0">
-                        <div className="w-14" title="Nº de Discos físicos (1 = Simples, 2 = Duplo, 3+ = Box Set)">
-                          <input
-                            type="number"
-                            min="1"
-                            max="50"
-                            value={entry.discCount || 1}
-                            onChange={(e) =>
-                              handleUpdateCdEntry(
-                                idx,
-                                'discCount',
-                                e.target.value
-                              )
-                            }
-                            aria-label="Número de discos"
-                            className="w-full rounded-lg bg-slate-900 border border-slate-700 px-1.5 py-2 text-base sm:text-xs text-indigo-300 font-mono text-center focus:border-purple-400 focus:outline-none"
-                          />
-                        </div>
-
-                        <div className="relative flex-1 sm:flex-initial sm:w-24">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-400">
-                            {currSymbol}
-                          </span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            placeholder={
-                              !hasIndividualPrices && parsedBundleVal > 0
-                                ? unitOriginalPreview.toFixed(2)
-                                : 'Preço'
-                            }
-                            value={entry.unitPrice}
-                            onChange={(e) =>
-                              handleUpdateCdEntry(
-                                idx,
-                                'unitPrice',
-                                e.target.value
-                              )
-                            }
-                            title="Preço pago neste CD específico"
-                            className="w-full rounded-lg bg-slate-900 border border-slate-700 pl-5 pr-2 py-2 text-base sm:text-xs text-white font-mono placeholder-slate-500 focus:border-purple-400 focus:outline-none text-right"
-                          />
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleFetchOrCycleCoverForIndex(idx, true)
-                          }
-                          disabled={entry.isFetchingCover}
-                          title={
-                            totalCands > 1
-                              ? `Trocar capa (${currentCandNum}/${totalCands})`
-                              : 'Buscar / Trocar capa na internet'
-                          }
-                          className="inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-lg bg-purple-500/15 hover:bg-purple-500/30 border border-purple-500/30 text-purple-300 transition shrink-0 text-xs font-mono"
-                        >
-                          {totalCands > 1 ? (
-                            <>
-                              <RefreshCw className="w-3.5 h-3.5" />
-                              <span>
-                                {currentCandNum}/{totalCands}
-                              </span>
-                            </>
-                          ) : (
-                            <Sparkles className="w-4 h-4" />
-                          )}
-                        </button>
-
-                        {cdEntries.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveCdEntryRow(idx)}
-                            title="Remover este CD"
-                            className="p-2 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-900 transition shrink-0"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {parsedBundleVal > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-950/80 border border-purple-500/30 px-3.5 py-2.5 text-xs">
-                  <span className="text-slate-300">
-                    {hasIndividualPrices ? (
-                      <>
-                        Soma de <strong>{parsedBundleQty} CDs</strong>:{' '}
-                        <strong className="font-mono text-purple-300">
-                          {formatOriginalCurrency(parsedBundleVal, currency)}
-                        </strong>
-                      </>
-                    ) : (
-                      <>
-                        <strong>{parsedBundleQty}</strong>{' '}
-                        {parsedBundleQty === 1 ? 'CD' : 'CDs'} de{' '}
-                        <strong className="font-mono text-purple-300">
-                          {formatOriginalCurrency(
-                            unitOriginalPreview,
-                            currency
-                          )}
-                        </strong>{' '}
-                        cada
-                      </>
-                    )}
-                  </span>
-                  <span className="font-mono text-emerald-400 font-semibold">
-                    Subtotal CDs: ≈ {formatBrl(parsedBundleVal * parsedRate)}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* =====================================================================
-                BLOCO 2: AGRUPAMENTO DE PACOTES ÚNICOS DISPONÍVEIS PARA CONSOLIDAR
-                (Com suporte a Descarte / Exclusão de CDs para reduzir peso!)
-                ===================================================================== */}
-            {eligibleForwarderPackages.length > 0 && !showForwarderBox && (
-              <div className="rounded-xl bg-slate-950/70 border border-slate-800 px-4 py-2.5 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs text-slate-400 min-w-0">
-                  <PackageOpen className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span className="truncate">
-                    Há{' '}
-                    <strong className="text-amber-300">
-                      {eligibleForwarderPackages.length}{' '}
-                      {eligibleForwarderPackages.length === 1
-                        ? 'pacote único disponível'
-                        : 'pacotes únicos disponíveis'}
-                    </strong>{' '}
-                    para consolidar
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsForwarderExpandedManual(true)}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-amber-300 hover:text-amber-200 shrink-0"
-                >
-                  <span>Incluir neste pacote</span>
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
-            {showForwarderBox && (
-              <div className="rounded-xl bg-amber-950/20 border border-amber-500/40 p-4 space-y-3.5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <span className="text-xs font-semibold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
-                      <PackageOpen className="w-4 h-4 text-amber-400" />
-                      Consolidar Pacotes Únicos / Compras Avulsas (
-                      {eligibleForwarderPackages.length} disponíveis)
-                    </span>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Selecione os CDs para incluir na caixa ou clique na{' '}
-                      <strong className="text-rose-300">lixeira (🗑️)</strong>{' '}
-                      para descartar um CD no redirecionador (redistribuindo seu
-                      custo entre os CDs mantidos).
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleSelectAllForwarderPackages}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-amber-500/40 px-2.5 py-1.5 text-xs font-medium text-amber-300 transition"
-                    >
-                      {areAllForwarderSelected ? (
-                        <>
-                          <CheckSquare className="w-3.5 h-3.5" /> Desmarcar
-                          Todos
-                        </>
-                      ) : (
-                        <>
-                          <Square className="w-3.5 h-3.5" /> Selecionar Todos (
-                          {allForwarderCdIds.length} CDs)
-                        </>
-                      )}
-                    </button>
-
-                    {isAlreadyShippedStatus &&
-                      selectedExistingCdIds.size === 0 &&
-                      discardedExistingCdIds.size === 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setIsForwarderExpandedManual(false)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-                          title="Recolher seção"
-                        >
-                          <ChevronUp className="w-4 h-4" />
-                        </button>
-                      )}
-                  </div>
-                </div>
-
-                {/* Lista de Pacotes Elegíveis */}
-                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                  {eligibleForwarderPackages.map((fp) => {
-                    const nonDiscardedInPkg = fp.items.filter(
-                      (cd) => !discardedExistingCdIds.has(cd.id)
-                    );
-                    const discardedInPkgCount =
-                      fp.items.length - nonDiscardedInPkg.length;
-                    const selectedInPkg = nonDiscardedInPkg.filter((cd) =>
-                      selectedExistingCdIds.has(cd.id)
-                    ).length;
-                    const isWholePkgSelected =
-                      selectedInPkg === nonDiscardedInPkg.length &&
-                      nonDiscardedInPkg.length > 0;
-                    const isPartiallySelected =
-                      selectedInPkg > 0 &&
-                      selectedInPkg < nonDiscardedInPkg.length;
-
-                    const pkgCdsSum = fp.items.reduce(
-                      (acc, cd) => acc + (Number(cd.unitOriginalValue) || 0),
-                      0
-                    );
-                    const effectiveUnitAfterDiscard =
-                      nonDiscardedInPkg.length > 0
-                        ? pkgCdsSum / nonDiscardedInPkg.length
-                        : 0;
-
-                    return (
-                      <div
-                        key={fp.shipment.id}
-                        className={`rounded-lg border p-3 transition ${
-                          isWholePkgSelected || isPartiallySelected
-                            ? 'bg-slate-950/90 border-amber-500/60'
-                            : 'bg-slate-950/50 border-slate-800'
-                        }`}
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleToggleWholeForwarderPackage(fp)
-                            }
-                            className="flex items-center gap-2 text-left"
-                          >
-                            {isWholePkgSelected ? (
-                              <CheckSquare className="w-4 h-4 text-amber-400 shrink-0" />
-                            ) : isPartiallySelected ? (
-                              <CheckSquare className="w-4 h-4 text-indigo-400 shrink-0" />
-                            ) : (
-                              <Square className="w-4 h-4 text-slate-500 shrink-0" />
-                            )}
-                            <span className="text-xs font-bold text-white">
-                              {fp.shipment.name}
-                            </span>
-                            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-300">
-                              {nonDiscardedInPkg.length}/{fp.items.length} CDs
-                            </span>
-                            {discardedInPkgCount > 0 && (
-                              <span className="rounded bg-rose-500/20 border border-rose-500/40 px-1.5 py-0.5 text-[10px] font-mono text-rose-300">
-                                {discardedInPkgCount} descartado(s)
-                              </span>
-                            )}
-                          </button>
-
-                          <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400">
-                            <span>
-                              Total Lote:{' '}
-                              {formatOriginalCurrency(
-                                pkgCdsSum,
-                                fp.shipment.currency
-                              )}
-                            </span>
-                            {fp.shipment.internalShipping > 0 && (
-                              <span>
-                                • Frete Local:{' '}
-                                {formatOriginalCurrency(
-                                  fp.shipment.internalShipping,
-                                  fp.shipment.currency
-                                )}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="mt-2 pl-6 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                          {fp.items.map((cd) => {
-                            const isCdChecked = selectedExistingCdIds.has(
-                              cd.id
-                            );
-                            const isCdDiscarded = discardedExistingCdIds.has(
-                              cd.id
-                            );
-                            const displayPrice =
-                              discardedInPkgCount > 0 && !isCdDiscarded
-                                ? effectiveUnitAfterDiscard
-                                : cd.unitOriginalValue;
-
-                            return (
-                              <div
-                                key={cd.id}
-                                className={`flex items-center justify-between gap-1.5 rounded px-2.5 py-1.5 text-xs border transition ${
-                                  isCdDiscarded
-                                    ? 'bg-rose-950/35 border-rose-500/40 text-rose-300/80'
-                                    : isCdChecked
-                                    ? 'bg-amber-500/15 border-amber-500/40 text-white'
-                                    : 'bg-slate-900/70 border-slate-800 text-slate-400 hover:text-slate-200'
-                                }`}
-                              >
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleToggleSingleForwarderCd(cd.id)
-                                  }
-                                  className="flex items-center justify-between gap-2 flex-1 min-w-0 text-left"
-                                >
-                                  <span
-                                    className={`truncate ${
-                                      isCdDiscarded ? 'line-through' : ''
-                                    }`}
-                                  >
-                                    {isCdChecked ? '✓ ' : ''}
-                                    <strong>{cd.artist}</strong> —{' '}
-                                    {cd.albumTitle}
-                                  </span>
-                                  <span className="font-mono text-[11px] text-slate-300 shrink-0">
-                                    {isCdDiscarded
-                                      ? 'Descartado'
-                                      : formatOriginalCurrency(
-                                          displayPrice,
-                                          fp.shipment.currency
-                                        )}
-                                  </span>
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleToggleDiscardForwarderCd(cd.id)
-                                  }
-                                  title={
-                                    isCdDiscarded
-                                      ? 'Restaurar CD (cancelar descarte)'
-                                      : 'Descartar/Excluir este CD no redirecionador (redistribui o valor entre os demais CDs do lote)'
-                                  }
-                                  className={`p-1 rounded transition shrink-0 ${
-                                    isCdDiscarded
-                                      ? 'bg-rose-500/25 text-rose-200 hover:bg-rose-500/40'
-                                      : 'text-slate-500 hover:text-rose-400 hover:bg-slate-800'
-                                  }`}
-                                >
-                                  {isCdDiscarded ? (
-                                    <RotateCcw className="w-3.5 h-3.5" />
-                                  ) : (
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  )}
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {discardedExistingCdIds.size > 0 && (
-                  <div className="rounded-lg bg-rose-950/35 border border-rose-500/40 px-3 py-2 text-[11px] text-rose-200 flex items-center gap-2">
-                    <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
-                    <span>
-                      <strong>
-                        {discardedExistingCdIds.size}{' '}
-                        {discardedExistingCdIds.size === 1
-                          ? 'CD marcado'
-                          : 'CDs marcados'}{' '}
-                        para descarte:
-                      </strong>{' '}
-                      serão excluídos ao salvar e seu valor pago + frete local
-                      serão redistribuídos automaticamente entre os CDs mantidos
-                      do mesmo lote.
-                    </span>
-                  </div>
-                )}
-
-                {selectedExistingCdIds.size > 0 && (
-                  <div className="pt-2 border-t border-amber-500/30 space-y-2.5">
-                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-950/90 border border-amber-500/35 px-3.5 py-2.5 text-xs">
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-300">
-                        <span>
-                          <strong>{selectedSourceShipmentsCount}</strong>{' '}
-                          {selectedSourceShipmentsCount === 1
-                            ? 'pacote'
-                            : 'pacotes'}{' '}
-                          • <strong>{selectedExistingCdIds.size}</strong>{' '}
-                          {selectedExistingCdIds.size === 1 ? 'CD' : 'CDs'}
-                        </span>
-                        <span>
-                          • CDs:{' '}
-                          <strong className="font-mono text-amber-300">
-                            {formatOriginalCurrency(
-                              selectedForwarderCdsValueInTargetCurr,
-                              currency
-                            )}
-                          </strong>
-                        </span>
-                        {inheritedInternalShippingFromSelected > 0 && (
-                          <span>
-                            • Frete Local:{' '}
-                            <strong className="font-mono text-sky-300">
-                              {formatOriginalCurrency(
-                                inheritedInternalShippingFromSelected,
-                                currency
-                              )}
-                            </strong>
-                          </span>
-                        )}
-                      </div>
-                      <span className="font-mono text-emerald-400 font-semibold">
-                        Subtotal Consolidado: ≈{' '}
-                        {formatBrl(
-                          (selectedForwarderCdsValueInTargetCurr +
-                            inheritedInternalShippingFromSelected +
-                            (parseFloat(forwarderFee) || 0)) *
-                            parsedRate
-                        )}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                      <span className="font-semibold text-amber-200">
-                        Modo de consolidação no redirecionador (
-                        {selectedExistingCdIds.size}{' '}
-                        {selectedExistingCdIds.size === 1
-                          ? 'CD selecionado'
-                          : 'CDs selecionados'}{' '}
-                        de {selectedSourceShipmentsCount}{' '}
-                        {selectedSourceShipmentsCount === 1
-                          ? 'pacote'
-                          : 'pacotes'}
-                        ):
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div
-                        onClick={() => {
-                          setConsolidationAction('group_only');
-                          const pkgCount = Math.max(
-                            1,
-                            selectedSourceShipmentsCount
-                          );
-                          const unitFee = parseFloat(groupOnlyFeePreset) || 0;
-                          setForwarderFee(
-                            String(Number((pkgCount * unitFee).toFixed(2)))
-                          );
-                        }}
-                        className={`cursor-pointer rounded-xl border p-3 transition flex items-center justify-between gap-2 ${
-                          consolidationAction === 'group_only'
-                            ? 'bg-indigo-950/60 border-indigo-400 text-white'
-                            : 'bg-slate-950/70 border-slate-800 text-slate-400'
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <div className="text-xs font-bold flex items-center gap-1.5 text-white">
-                            <PackageCheck className="w-4 h-4 text-indigo-400 shrink-0" />
-                            <span>Apenas Agrupar</span>
-                          </div>
-                          <p className="text-[11px] text-slate-400">
-                            Por pacote ({selectedSourceShipmentsCount}x ={' '}
-                            {currSymbol}
-                            {(
-                              Math.max(1, selectedSourceShipmentsCount) *
-                              (parseFloat(groupOnlyFeePreset) || 0)
-                            ).toFixed(2)}
-                            )
-                          </p>
-                        </div>
-                        <div
-                          className="flex items-center gap-1 shrink-0"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <span className="text-xs font-mono text-indigo-300">
-                            {currSymbol}
-                          </span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={groupOnlyFeePreset}
-                            onChange={(e) => {
-                              setGroupOnlyFeePreset(e.target.value);
-                              setConsolidationAction('group_only');
-                              const pkgCount = Math.max(
-                                1,
-                                selectedSourceShipmentsCount
-                              );
-                              const unitFee = parseFloat(e.target.value) || 0;
-                              setForwarderFee(
-                                String(Number((pkgCount * unitFee).toFixed(2)))
-                              );
-                            }}
-                            title="Taxa por pacote (ex: £2.40 c/ VAT)"
-                            className="w-16 rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-xs font-mono text-white text-right"
-                          />
-                        </div>
-                      </div>
-
-                      <div
-                        onClick={() => {
-                          setConsolidationAction('unpack_and_repack');
-                          const pkgCount = Math.max(
-                            1,
-                            selectedSourceShipmentsCount
-                          );
-                          const unitFee =
-                            parseFloat(unpackAndRepackFeePreset) || 0;
-                          setForwarderFee(
-                            String(Number((pkgCount * unitFee).toFixed(2)))
-                          );
-                        }}
-                        className={`cursor-pointer rounded-xl border p-3 transition flex items-center justify-between gap-2 ${
-                          consolidationAction === 'unpack_and_repack'
-                            ? 'bg-amber-950/60 border-amber-400 text-white'
-                            : 'bg-slate-950/70 border-slate-800 text-slate-400'
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <div className="text-xs font-bold flex items-center gap-1.5 text-white">
-                            <PackageOpen className="w-4 h-4 text-amber-400 shrink-0" />
-                            <span>Desempacotar + Agrupar</span>
-                          </div>
-                          <p className="text-[11px] text-slate-400">
-                            Por pacote ({selectedSourceShipmentsCount}x ={' '}
-                            {currSymbol}
-                            {(
-                              Math.max(1, selectedSourceShipmentsCount) *
-                              (parseFloat(unpackAndRepackFeePreset) || 0)
-                            ).toFixed(2)}
-                            )
-                          </p>
-                        </div>
-                        <div
-                          className="flex items-center gap-1 shrink-0"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <span className="text-xs font-mono text-amber-300">
-                            {currSymbol}
-                          </span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={unpackAndRepackFeePreset}
-                            onChange={(e) => {
-                              setUnpackAndRepackFeePreset(e.target.value);
-                              setConsolidationAction('unpack_and_repack');
-                              const pkgCount = Math.max(
-                                1,
-                                selectedSourceShipmentsCount
-                              );
-                              const unitFee = parseFloat(e.target.value) || 0;
-                              setForwarderFee(
-                                String(Number((pkgCount * unitFee).toFixed(2)))
-                              );
-                            }}
-                            title="Taxa por pacote (ex: £3.60 c/ VAT)"
-                            className="w-16 rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-xs font-mono text-white text-right"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            <ForwarderConsolidationSection
+              eligibleForwarderPackages={eligibleForwarderPackages}
+              showForwarderBox={showForwarderBox}
+              isForwarderExpandedManual={isForwarderExpandedManual}
+              setIsForwarderExpandedManual={setIsForwarderExpandedManual}
+              selectedExistingCdIds={selectedExistingCdIds}
+              discardedExistingCdIds={discardedExistingCdIds}
+              areAllForwarderSelected={areAllForwarderSelected}
+              allForwarderCdIdsLength={allForwarderCdIds.length}
+              isAlreadyShippedStatus={isAlreadyShippedStatus}
+              currency={currency}
+              currSymbol={currSymbol}
+              selectedSourceShipmentsCount={selectedSourceShipmentsCount}
+              selectedForwarderCdsValueInTargetCurr={
+                selectedForwarderCdsValueInTargetCurr
+              }
+              inheritedInternalShippingFromSelected={
+                inheritedInternalShippingFromSelected
+              }
+              forwarderFee={forwarderFee}
+              parsedRate={parsedRate}
+              consolidationAction={consolidationAction}
+              groupOnlyFeePreset={groupOnlyFeePreset}
+              unpackAndRepackFeePreset={unpackAndRepackFeePreset}
+              onSelectAllForwarderPackages={handleSelectAllForwarderPackages}
+              onToggleWholeForwarderPackage={handleToggleWholeForwarderPackage}
+              onToggleSingleForwarderCd={handleToggleSingleForwarderCd}
+              onToggleDiscardForwarderCd={handleToggleDiscardForwarderCd}
+              onSelectConsolidationAction={(action, unitFee) => {
+                setConsolidationAction(action);
+                const pkgCount = Math.max(1, selectedSourceShipmentsCount);
+                setForwarderFee(String(Number((pkgCount * unitFee).toFixed(2))));
+              }}
+              onChangeGroupOnlyPreset={(preset) => {
+                setGroupOnlyFeePreset(preset);
+                setConsolidationAction('group_only');
+                const pkgCount = Math.max(1, selectedSourceShipmentsCount);
+                const unitFee = parseFloat(preset) || 0;
+                setForwarderFee(String(Number((pkgCount * unitFee).toFixed(2))));
+              }}
+              onChangeUnpackAndRepackPreset={(preset) => {
+                setUnpackAndRepackFeePreset(preset);
+                setConsolidationAction('unpack_and_repack');
+                const pkgCount = Math.max(1, selectedSourceShipmentsCount);
+                const unitFee = parseFloat(preset) || 0;
+                setForwarderFee(String(Number((pkgCount * unitFee).toFixed(2))));
+              }}
+            />
 
             {/* =====================================================================
                 BLOCO 3: STATUS, DATA DE COMPRA, PESO (KG), FRETES E ALFÂNDEGA

@@ -7,6 +7,8 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:status": "node scripts/db-sync.mjs status",
     "db:sync": "node scripts/db-sync.mjs sync",
     "db:watch": "node scripts/db-sync.mjs watch 30",
@@ -17,12 +19,10 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.17",
-    "framer-motion": "^12.34.3",
     "lucide-react": "^0.575.0",
     "next": "16.1.6",
     "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "react-hook-form": "^7.71.2"
+    "react-dom": "19.2.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -32,6 +32,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.12"
   }
 }

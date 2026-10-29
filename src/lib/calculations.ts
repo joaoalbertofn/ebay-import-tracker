@@ -5,6 +5,21 @@ import {
   Shipment,
   ShipmentCalculationSummary,
 } from '@/types/tracker';
+import {
+  formatBrl,
+  formatOriginalCurrency,
+  formatWeightKg,
+  getTodayLocalIsoDate,
+} from '@/lib/formatters';
+import { fetchLiveExchangeRate } from '@/lib/services/exchangeRateService';
+
+export {
+  formatBrl,
+  formatOriginalCurrency,
+  formatWeightKg,
+  getTodayLocalIsoDate,
+  fetchLiveExchangeRate,
+};
 
 export const MG_TAX_FACTOR = 0.9277;
 
@@ -55,13 +70,6 @@ export const CURRENCY_META: Record<
   },
 };
 
-export function getTodayLocalIsoDate(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 /**
  * Retorna o frete interno unitário (na moeda original) correspondente a 1 CD específico
@@ -268,103 +276,6 @@ export function calculateAllShipmentSummaries(
   return map;
 }
 
-/**
- * Busca a cotação comercial atual da moeda para BRL usando AwesomeAPI (dados públicos em tempo real),
- * com fallback para Open Exchange Rates caso necessário.
- */
-export async function fetchLiveExchangeRate(
-  currency: CurrencyCode
-): Promise<{ rate: number; source: string; timestamp: string }> {
-  if (currency === 'BRL') {
-    return {
-      rate: 1.0,
-      source: 'Moeda Nacional',
-      timestamp: new Date().toLocaleTimeString('pt-BR', {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-    };
-  }
-
-  try {
-    const response = await fetch(
-      `https://economia.awesomeapi.com.br/json/last/${currency}-BRL`,
-      { cache: 'no-store' }
-    );
-    if (response.ok) {
-      const data = await response.json();
-      const pairKey = `${currency}BRL`;
-      if (data[pairKey] && data[pairKey].bid) {
-        return {
-          rate: Number(parseFloat(data[pairKey].bid).toFixed(4)),
-          source: 'AwesomeAPI (Comercial)',
-          timestamp: new Date().toLocaleTimeString('pt-BR', {
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-        };
-      }
-    }
-  } catch {
-    // Continua para o fallback
-  }
-
-  try {
-    const fallbackRes = await fetch(
-      `https://open.er-api.com/v6/latest/${currency}`,
-      { cache: 'no-store' }
-    );
-    if (fallbackRes.ok) {
-      const fallbackData = await fallbackRes.json();
-      if (fallbackData?.rates?.BRL) {
-        return {
-          rate: Number(Number(fallbackData.rates.BRL).toFixed(4)),
-          source: 'ExchangeRate-API',
-          timestamp: new Date().toLocaleTimeString('pt-BR', {
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-        };
-      }
-    }
-  } catch {
-    // Retorna padrão se offline
-  }
-
-  return {
-    rate: CURRENCY_META[currency].defaultRate,
-    source: 'Cotação Automática de Referência',
-    timestamp: new Date().toLocaleTimeString('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-    }),
-  };
-}
-
-export function formatBrl(value: number): string {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(Number.isFinite(value) ? value : 0);
-}
-
-export function formatOriginalCurrency(
-  value: number,
-  currency: CurrencyCode
-): string {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency,
-  }).format(Number.isFinite(value) ? value : 0);
-}
-
-export function formatWeightKg(weightKg?: number): string {
-  if (!weightKg || !Number.isFinite(weightKg) || weightKg <= 0) return '';
-  return `${weightKg.toLocaleString('pt-BR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} kg`;
-}
 
 /**
  * Gera automaticamente o Nome Identificador do Pacote a partir dos CDs pertencentes a ele:

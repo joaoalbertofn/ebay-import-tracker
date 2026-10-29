@@ -84,18 +84,38 @@ Aplicação web **Single Page Application (SPA)** desenvolvida com **Next.js 16 
 │   ├── app/
 │   │   ├── api/
 │   │   │   ├── demand/               # Rotas de API do Radar de Demanda (top100, lookup, mercadolivre)
-│   │   │   └── tracker/route.ts      # API Route (GET/POST) autenticada com suporte a Upstash Redis e JSON local
+│   │   │   └── tracker/route.ts      # API Route (GET/POST) com validação estrita e suporte a Upstash Redis + JSON local
 │   │   ├── globals.css               # Estilos globais e importação do Tailwind CSS v4
 │   │   ├── layout.tsx                # Root Layout com ClerkProvider (pt-BR, dark mode)
 │   │   └── page.tsx                  # Página principal que renderiza o CDImportTrackerApp
 │   ├── components/
+│   │   ├── tracker/                  # Componentes do Dashboard e Visão Geral
+│   │   │   ├── TrackerHeader.tsx     # Cabeçalho global, KPIs, login Clerk e status de sincronização em nuvem
+│   │   │   ├── PackageSidebar.tsx    # Coluna esquerda Master (busca, filtros de status, lista e consolidação em lote)
+│   │   │   ├── PackageDetailView.tsx # Coluna direita Detail (cards de memória de cálculo, tabela e cards responsivos)
+│   │   │   ├── GlobalCollectionView.tsx # Visão Global unificada de todos os CDs da coleção
+│   │   │   └── ConfirmModal.tsx      # Modal acessível de confirmação personalizada
+│   │   ├── modals/                   # Submódulos e seções de formulários
+│   │   │   ├── ForwarderConsolidationSection.tsx # Árvore de consolidação do redirecionador e descarte
+│   │   │   └── CDEntriesBatchTable.tsx # Tabela de lançamento de CDs, busca de capas e integração eBay
 │   │   ├── AlbumCover.tsx            # Componente de exibição de capa de álbum com fallback visual
-│   │   ├── CDImportTrackerApp.tsx    # Componente principal SPA (Dashboard Master/Detail, Coleção Global e Radar)
-│   │   ├── CDModal.tsx               # Modal de adição/edição individual ou em lote (Batch) de CDs e capas
+│   │   ├── CDImportTrackerApp.tsx    # Orquestrador SPA Master/Detail, Coleção Global e Radar
+│   │   ├── CDModal.tsx               # Modal de edição/adição de CD avulso ou em lote
 │   │   ├── DemandRadarView.tsx       # Módulo Radar Top 100 Demanda & Arbitragem (Discogs + Mercado Livre BR)
-│   │   └── ShipmentModal.tsx         # Modal de criação/edição de pacotes, consolidação e lançamento de CDs
+│   │   └── ShipmentModal.tsx         # Modal de criação/edição de pacotes
+│   ├── hooks/
+│   │   ├── useTrackerData.ts         # Hook desacoplado de dados, cache local e persistência em nuvem
+│   │   └── useEbayQuickPaste.ts      # Hook reutilizável de importação rápida de anúncios e pedidos do eBay
 │   ├── lib/
-│   │   ├── calculations.ts           # Cálculos de rateio, geração automática de nomes, formatação e câmbio
+│   │   ├── domain/
+│   │   │   └── consolidation.ts      # Funções puras de consolidação, descarte, redistribuição e desmembramento
+│   │   ├── services/
+│   │   │   └── exchangeRateService.ts# Serviço isolado de cotação de moedas (AwesomeAPI / ExchangeRate-API)
+│   │   ├── storage/
+│   │   │   └── feePresets.ts         # Centralização do gerenciamento de presets de taxas no localStorage
+│   │   ├── calculations.ts           # Regras 1, 2, 3 e 4, rateios, geração de nomes e compatibilidade
+│   │   ├── formatters.ts             # Formatadores universais de moedas, peso em kg e badges
+│   │   ├── validation.ts             # Validador estrutural e de tipagem para requisições de persistência
 │   │   ├── coverArt.ts               # Integração com iTunes API e MusicBrainz para busca de capas
 │   │   ├── discogsDemand.ts          # Integração com Discogs API e cálculo de demanda/escassez
 │   │   ├── seedData.ts               # Dados iniciais de exemplo (fallback inicial)
@@ -104,7 +124,8 @@ Aplicação web **Single Page Application (SPA)** desenvolvida com **Next.js 16 
 │   │   ├── demand.ts                 # Interfaces TypeScript do módulo Radar de Demanda
 │   │   └── tracker.ts                # Interfaces TypeScript (Shipment, CDItem, ShipmentCalculationSummary, etc.)
 │   └── proxy.ts                      # Middleware de autenticação do Clerk (Next.js 16)
-├── next.config.ts                    # Configuração do Next.js
+├── next.config.ts                    # Configuração do Next.js (com remotePatterns para capas)
+├── vitest.config.mts                 # Configuração do Vitest com path aliases
 ├── package.json                      # Dependências e scripts npm
 └── tsconfig.json                     # Configuração do TypeScript
 ```
@@ -159,6 +180,10 @@ npm run build
 
 # Iniciar servidor de produção após o build
 npm start
+
+# Executar suíte de testes unitários automatizados (Vitest)
+npm test
+npm run test:watch
 
 # Verificar regras de lint (ESLint)
 npm run lint

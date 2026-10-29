@@ -71,6 +71,8 @@ export interface CalculatedCDItem extends CDItem {
   costPerDiscBrl: number; // Caso seja CD duplo/BoxSet, mostra também o custo por disco físico dentro do box
 }
 
+export type ShipmentSummary = ShipmentCalculationSummary;
+
 export interface ShipmentCalculationSummary {
   shipment: Shipment;
   items: CalculatedCDItem[];
