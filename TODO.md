@@ -42,7 +42,20 @@ Este documento reúne as tarefas do projeto organizadas por categoria e status d
 
 ---
 
-## 🛠️ 2. Backlog Técnico e Melhorias Futuras
+## 🚀 2. Sugestor Inteligente de Consolidação (Concluído)
+
+- [x] **Motor de Otimização de Caixas por Peso e Rateio (`src/lib/domain/consolidationAdvisor.ts`):**
+  - Avalia todas as combinações de pacotes elegíveis respeitando a meta de peso selecionada (`0,5 kg`, `1,0 kg` padrão, `1,5 kg` ou `2,0 kg`).
+  - Prioriza lotes com maior densidade de CDs para diluir a taxa fixa por pacote (`£2.40` / `£3.60`) e o frete internacional pelo maior número de CDs.
+  - Suporta pesos reais cadastrados (`weightKg`) e estimativa automática (`~110g/disco`) para pacotes ainda sem peso ou com status `Comprado (a caminho)`.
+  - Coberto por testes unitários em `src/lib/__tests__/consolidationAdvisor.test.ts`.
+- [x] **Interface Interativa (`src/components/tracker/ConsolidationAdvisorModal.tsx`):**
+  - Seletor rápido de faixa de peso (`0,5 kg` / `1,0 kg` / `1,5 kg` / `2,0 kg`), modo (`Desempacotar + Agrupar` vs `Só Agrupar`), frete internacional estimado e toggle para incluir pacotes `Comprados`.
+  - Alerta inteligente de folga de peso na caixa e botões de 1 clique para **Marcar na Lista** ou **Consolidar Agora** (pré-preenchendo pacotes, modo, peso e frete no `ShipmentModal`).
+
+---
+
+## 🛠️ 3. Backlog Técnico e Melhorias Futuras
 
 - [ ] **Externalizar `DEFAULT_USER_ID` do script `scripts/db-sync.mjs`:**
   - Ler o ID exclusivamente de `TRACKER_USER_ID` no `.env.local` e disponibilizar template em `.env.example`.

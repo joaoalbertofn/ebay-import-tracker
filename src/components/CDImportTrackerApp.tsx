@@ -26,6 +26,8 @@ import { ConfirmDialogState, ConfirmModal } from '@/components/tracker/ConfirmMo
 import { GlobalCollectionView } from '@/components/tracker/GlobalCollectionView';
 import { PackageSidebar } from '@/components/tracker/PackageSidebar';
 import { PackageDetailView } from '@/components/tracker/PackageDetailView';
+import { ConsolidationAdvisorModal } from '@/components/tracker/ConsolidationAdvisorModal';
+import { ConsolidationSuggestion } from '@/lib/domain/consolidationAdvisor';
 import { fetchBestAlbumCover, fetchCoversInBatch } from '@/lib/coverArt';
 import {
   AbsorbedForwarderItemsPayload,
@@ -101,6 +103,7 @@ export default function CDImportTrackerApp() {
 
   // Modais
   const [isShipmentModalOpen, setIsShipmentModalOpen] = useState(false);
+  const [isAdvisorModalOpen, setIsAdvisorModalOpen] = useState(false);
   const [editingShipment, setEditingShipment] = useState<Shipment | null>(null);
   const [checkedPackageIds, setCheckedPackageIds] = useState<Set<string>>(
     new Set()
@@ -108,6 +111,12 @@ export default function CDImportTrackerApp() {
   const [preselectedModalPackageIds, setPreselectedModalPackageIds] = useState<
     string[]
   >([]);
+  const [preselectedSuggestionPreset, setPreselectedSuggestionPreset] =
+    useState<{
+      mode: 'group_only' | 'unpack_and_repack';
+      weightKg: number;
+      internationalShipping: number;
+    } | null>(null);
 
   const [isCDModalOpen, setIsCDModalOpen] = useState(false);
   const [editingCD, setEditingCD] = useState<CDItem | null>(null);
@@ -243,7 +252,23 @@ export default function CDImportTrackerApp() {
   const handleOpenConsolidateFromChecked = () => {
     if (checkedConsolidationStats.packageCount < 2) return;
     setEditingShipment(null);
+    setPreselectedSuggestionPreset(null);
     setPreselectedModalPackageIds(Array.from(checkedPackageIds));
+    setIsShipmentModalOpen(true);
+  };
+
+  const handleConsolidateFromSuggestion = (
+    suggestion: ConsolidationSuggestion
+  ) => {
+    setIsAdvisorModalOpen(false);
+    setEditingShipment(null);
+    setCheckedPackageIds(new Set(suggestion.packageIds));
+    setPreselectedModalPackageIds(suggestion.packageIds);
+    setPreselectedSuggestionPreset({
+      mode: suggestion.mode,
+      weightKg: suggestion.totalWeightKg,
+      internationalShipping: suggestion.estimatedIntlShippingOriginal,
+    });
     setIsShipmentModalOpen(true);
   };
 
@@ -1083,10 +1108,13 @@ export default function CDImportTrackerApp() {
             filteredShipments={filteredShipments}
             totalShipmentsCount={shipments.length}
             checkedConsolidationStats={checkedConsolidationStats}
+            eligibleConsolidationCount={forwarderPackages.length}
             onClearCheckedPackages={() => setCheckedPackageIds(new Set())}
             onOpenConsolidateFromChecked={handleOpenConsolidateFromChecked}
+            onOpenConsolidationAdvisor={() => setIsAdvisorModalOpen(true)}
             onOpenNewShipmentModal={() => {
               setEditingShipment(null);
+              setPreselectedSuggestionPreset(null);
               setPreselectedModalPackageIds([]);
               setIsShipmentModalOpen(true);
             }}
@@ -1160,12 +1188,29 @@ export default function CDImportTrackerApp() {
           setIsShipmentModalOpen(false);
           setEditingShipment(null);
           setPreselectedModalPackageIds([]);
+          setPreselectedSuggestionPreset(null);
         }}
         onSave={handleSaveShipment}
         editingShipment={editingShipment}
         editingShipmentItems={editingShipmentItems}
         forwarderPackages={forwarderPackages}
         initialPreselectedPackageIds={preselectedModalPackageIds}
+        initialSuggestionPreset={preselectedSuggestionPreset}
+      />
+
+      {/* POP-UP 1.5: SUGESTOR INTELIGENTE DE CONSOLIDAÇÃO (PESO & RATEIO) */}
+      <ConsolidationAdvisorModal
+        isOpen={isAdvisorModalOpen}
+        onClose={() => setIsAdvisorModalOpen(false)}
+        forwarderPackages={forwarderPackages}
+        allShipments={shipments}
+        onSelectPackagesInSidebar={(packageIds) => {
+          setCheckedPackageIds(new Set(packageIds));
+          showToast(
+            `${packageIds.length} pacotes da sugestão marcados na lista!`
+          );
+        }}
+        onConsolidateSuggestion={handleConsolidateFromSuggestion}
       />
 
       {/* POP-UP 2: MODAL DE CD / BUNDLE */}

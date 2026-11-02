@@ -14,6 +14,7 @@ import {
   Scale,
   ExternalLink,
   ChevronRight,
+  Sparkles,
 } from 'lucide-react';
 import { Shipment, ShipmentStatus, ShipmentSummary } from '@/types/tracker';
 import { STATUS_LABELS } from '@/components/ShipmentModal';
@@ -24,8 +25,10 @@ interface PackageSidebarProps {
   filteredShipments: Shipment[];
   totalShipmentsCount: number;
   checkedConsolidationStats: { packageCount: number; totalCds: number };
+  eligibleConsolidationCount: number;
   onClearCheckedPackages: () => void;
   onOpenConsolidateFromChecked: () => void;
+  onOpenConsolidationAdvisor: () => void;
   onOpenNewShipmentModal: () => void;
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
@@ -44,8 +47,10 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
   filteredShipments,
   totalShipmentsCount,
   checkedConsolidationStats,
+  eligibleConsolidationCount,
   onClearCheckedPackages,
   onOpenConsolidateFromChecked,
+  onOpenConsolidationAdvisor,
   onOpenNewShipmentModal,
   searchQuery,
   onSearchQueryChange,
@@ -90,6 +95,18 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
               className="p-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-white transition"
             >
               <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {eligibleConsolidationCount >= 2 && (
+            <button
+              type="button"
+              onClick={onOpenConsolidationAdvisor}
+              title="Calcular e sugerir a melhor combinação de pacotes por peso (kg) e menor rateio por CD"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 px-2.5 py-2 text-xs font-semibold text-emerald-300 transition shrink-0 cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Sugerir Caixa</span>
             </button>
           )}
 

@@ -103,6 +103,11 @@ interface ShipmentModalProps {
   editingShipmentItems?: CDItem[];
   forwarderPackages?: ForwarderPackageOption[];
   initialPreselectedPackageIds?: string[];
+  initialSuggestionPreset?: {
+    mode: Exclude<ConsolidationMode, 'direct'>;
+    weightKg: number;
+    internationalShipping: number;
+  } | null;
 }
 
 export const STATUS_LABELS: Record<
@@ -155,6 +160,7 @@ export function ShipmentModal({
   editingShipmentItems = [],
   forwarderPackages = [],
   initialPreselectedPackageIds = [],
+  initialSuggestionPreset = null,
 }: ShipmentModalProps) {
   const [name, setName] = useState('');
   const [isCustomName, setIsCustomName] = useState(false);
@@ -334,7 +340,7 @@ export function ShipmentModal({
       setCdEntries([
         { artist: '', albumTitle: '', unitPrice: '', discCount: 1 },
       ]);
-      const { savedUnpack } = syncFeePresetsToState('GBP');
+      const { savedGroup, savedUnpack } = syncFeePresetsToState('GBP');
       handleFetchLiveRate('GBP');
 
       if (initialPreselectedPackageIds.length > 0) {
@@ -347,13 +353,32 @@ export function ShipmentModal({
         );
 
         if (preselectedCdIds.size > 0) {
+          const resolvedMode =
+            initialSuggestionPreset?.mode || 'unpack_and_repack';
           setSelectedExistingCdIds(preselectedCdIds);
-          setConsolidationAction('unpack_and_repack');
+          setConsolidationAction(resolvedMode);
           setStatus('consolidado');
           setIsForwarderExpandedManual(true);
           const pkgCount = Math.max(1, matchingPackages.length);
-          const totalFee = Number((pkgCount * savedUnpack).toFixed(2));
+          const unitFee =
+            resolvedMode === 'group_only' ? savedGroup : savedUnpack;
+          const totalFee = Number((pkgCount * unitFee).toFixed(2));
           setForwarderFee(String(totalFee));
+
+          if (
+            initialSuggestionPreset?.weightKg &&
+            initialSuggestionPreset.weightKg > 0
+          ) {
+            setWeightKg(String(initialSuggestionPreset.weightKg));
+          }
+          if (
+            initialSuggestionPreset?.internationalShipping &&
+            initialSuggestionPreset.internationalShipping > 0
+          ) {
+            setInternationalShipping(
+              String(initialSuggestionPreset.internationalShipping)
+            );
+          }
         }
       }
     }
@@ -363,6 +388,7 @@ export function ShipmentModal({
     editingShipmentItems,
     forwarderPackages,
     initialPreselectedPackageIds,
+    initialSuggestionPreset,
     setEbayImportFeedback,
   ]);
 
