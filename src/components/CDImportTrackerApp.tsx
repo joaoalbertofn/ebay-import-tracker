@@ -393,10 +393,19 @@ export default function CDImportTrackerApp() {
     }
   };
 
-  // Filtra pacotes pela barra de busca global
+  // Filtra e ordena pacotes por estágio do status (até Consolidado primeiro, depois Enviados/Entregues)
   const filteredShipments = useMemo(() => {
+    const STATUS_ORDER: Record<ShipmentStatus, number> = {
+      comprado: 1,
+      no_redirecionador: 2,
+      consolidado: 3,
+      em_transito: 4,
+      tributado: 5,
+      entregue: 6,
+    };
+
     const q = searchQuery.trim().toLowerCase();
-    return shipments.filter((ship) => {
+    const matched = shipments.filter((ship) => {
       if (statusFilter !== 'ALL' && ship.status !== statusFilter) {
         return false;
       }
@@ -420,6 +429,10 @@ export default function CDImportTrackerApp() {
           (cd.bundleName || '').toLowerCase().includes(q)
       );
     });
+
+    return matched.sort(
+      (a, b) => (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99)
+    );
   }, [shipments, cdItems, searchQuery, statusFilter]);
 
   // Métricas Globais do Topo do Dashboard
@@ -1001,7 +1014,7 @@ export default function CDImportTrackerApp() {
             isSidebarCollapsed ? 'w-16' : 'w-60'
           } p-3`}
         >
-          <div className="space-y-1.5 sticky top-24">
+          <div className="space-y-1.5 sticky top-14">
             <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-slate-800/70">
               {!isSidebarCollapsed && (
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
@@ -1102,7 +1115,7 @@ export default function CDImportTrackerApp() {
         /* =====================================================================
            ABA 1: MAIN SPA MASTER / DETAIL WORKSPACE (VISÃO POR PACOTES)
            ===================================================================== */
-        <main className="flex-1 max-w-[1600px] w-full mx-auto px-3.5 sm:px-6 py-4 sm:py-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <main className="flex-1 max-w-[1600px] w-full mx-auto px-3.5 sm:px-6 py-3 sm:py-4 grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           <PackageSidebar
             mobileActivePane={mobileActivePane}
             filteredShipments={filteredShipments}

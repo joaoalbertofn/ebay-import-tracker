@@ -67,7 +67,7 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
     <section
       className={`${
         mobileActivePane === 'detail' ? 'hidden lg:flex' : 'flex'
-      } lg:col-span-4 xl:col-span-4 flex-col gap-3.5 bg-slate-900/60 border border-slate-800/90 rounded-2xl p-4 lg:sticky lg:top-24`}
+      } lg:col-span-4 xl:col-span-4 flex-col gap-3 bg-slate-900/60 border border-slate-800/90 rounded-2xl p-4 lg:sticky lg:top-14`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
@@ -188,7 +188,7 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
       </div>
 
       {/* Lista Enxuta de Pacotes */}
-      <div className="space-y-2 lg:max-h-[calc(100vh-270px)] overflow-y-auto pr-0.5">
+      <div className="space-y-2 lg:max-h-[calc(100vh-215px)] overflow-y-auto pr-0.5">
         {filteredShipments.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-800 p-8 text-center space-y-2">
             <Package className="w-8 h-8 text-slate-600 mx-auto" />
@@ -197,7 +197,7 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
             </p>
           </div>
         ) : (
-          filteredShipments.map((ship) => {
+          filteredShipments.map((ship, idx) => {
             const summary = summariesMap.get(ship.id);
             const isSelected = ship.id === selectedShipmentId;
             const statusInfo = STATUS_LABELS[ship.status];
@@ -206,123 +206,135 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
             );
             const isCheckedForConsolidation = checkedPackageIds.has(ship.id);
 
-            return (
-              <div
-                key={ship.id}
-                onClick={() => onSelectShipment(ship.id)}
-                className={`group cursor-pointer rounded-xl border p-3.5 transition-all ${
-                  isCheckedForConsolidation
-                    ? 'bg-amber-950/30 border-amber-500/70 shadow-md shadow-amber-950/30'
-                    : isSelected
-                    ? 'bg-indigo-950/45 border-indigo-500/80 shadow-md shadow-indigo-950/40'
-                    : 'bg-slate-950/70 border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/60'
-                }`}
-              >
-                {/* Linha 1: Checkbox (se elegível) + Nome + Status Badge */}
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    {isEligibleForConsolidation && (
-                      <button
-                        type="button"
-                        onClick={(e) => onToggleCheckPackage(e, ship.id)}
-                        title={
-                          isCheckedForConsolidation
-                            ? 'Desmarcar da consolidação'
-                            : 'Marcar pacote para consolidar'
-                        }
-                        className="p-0.5 rounded text-slate-400 hover:text-amber-300 transition shrink-0 cursor-pointer"
-                      >
-                        {isCheckedForConsolidation ? (
-                          <CheckSquare className="w-4 h-4 text-amber-400" />
-                        ) : (
-                          <Square className="w-4 h-4 text-slate-500 group-hover:text-slate-300" />
-                        )}
-                      </button>
-                    )}
+            const isDispatchedGroup = (st: ShipmentStatus) =>
+              st === 'em_transito' || st === 'tributado' || st === 'entregue';
+            const prevShip = idx > 0 ? filteredShipments[idx - 1] : null;
+            const showGroupDivider =
+              prevShip !== null &&
+              !isDispatchedGroup(prevShip.status) &&
+              isDispatchedGroup(ship.status);
 
-                    <h3 className="text-sm font-semibold text-white truncate flex items-center gap-1.5 min-w-0">
-                      {ship.isCustomName && (
-                        <span
-                          title="Nome personalizado travado"
-                          className="inline-flex shrink-0"
+            return (
+              <React.Fragment key={ship.id}>
+                {showGroupDivider && (
+                  <hr className="border-t border-slate-700/80 my-3" />
+                )}
+                <div
+                  onClick={() => onSelectShipment(ship.id)}
+                  className={`group cursor-pointer rounded-xl border p-3.5 transition-all ${
+                    isCheckedForConsolidation
+                      ? 'bg-amber-950/30 border-amber-500/70 shadow-md shadow-amber-950/30'
+                      : isSelected
+                      ? 'bg-indigo-950/45 border-indigo-500/80 shadow-md shadow-indigo-950/40'
+                      : 'bg-slate-950/70 border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/60'
+                  }`}
+                >
+                  {/* Linha 1: Checkbox (se elegível) + Nome + Status Badge */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      {isEligibleForConsolidation && (
+                        <button
+                          type="button"
+                          onClick={(e) => onToggleCheckPackage(e, ship.id)}
+                          title={
+                            isCheckedForConsolidation
+                              ? 'Desmarcar da consolidação'
+                              : 'Marcar pacote para consolidar'
+                          }
+                          className="p-0.5 rounded text-slate-400 hover:text-amber-300 transition shrink-0 cursor-pointer"
                         >
-                          <Lock className="w-3 h-3 text-amber-400" />
+                          {isCheckedForConsolidation ? (
+                            <CheckSquare className="w-4 h-4 text-amber-400" />
+                          ) : (
+                            <Square className="w-4 h-4 text-slate-500 group-hover:text-slate-300" />
+                          )}
+                        </button>
+                      )}
+
+                      <h3 className="text-sm font-semibold text-white truncate flex items-center gap-1.5 min-w-0">
+                        {ship.isCustomName && (
+                          <span
+                            title="Nome personalizado travado"
+                            className="inline-flex shrink-0"
+                          >
+                            <Lock className="w-3 h-3 text-amber-400" />
+                          </span>
+                        )}
+                        <span className="truncate">{ship.name}</span>
+                      </h3>
+                    </div>
+
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium shrink-0 ${statusInfo.badgeClass}`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${statusInfo.dotClass}`}
+                      />
+                      {statusInfo.shortLabel}
+                    </span>
+                  </div>
+
+                  {/* Linha 2: Qtd de CDs + Peso (kg) + Modo + Custo Total BRL */}
+                  <div className="mt-2.5 pt-2 border-t border-slate-800/70 flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-300">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Disc3 className="w-3.5 h-3.5 text-purple-400" />
+                        <strong>{summary?.totalItemsCount || 0}</strong>{' '}
+                        {(summary?.totalItemsCount || 0) === 1 ? 'CD' : 'CDs'}
+                      </span>
+
+                      {ship.weightKg && ship.weightKg > 0 && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 text-[10px] font-mono text-emerald-300"
+                          title="Peso registrado do pacote"
+                        >
+                          <Scale className="w-2.5 h-2.5" />
+                          {formatWeightKg(ship.weightKg)}
                         </span>
                       )}
-                      <span className="truncate">{ship.name}</span>
-                    </h3>
-                  </div>
 
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium shrink-0 ${statusInfo.badgeClass}`}
-                  >
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${statusInfo.dotClass}`}
-                    />
-                    {statusInfo.shortLabel}
-                  </span>
-                </div>
-
-                {/* Linha 2: Qtd de CDs + Peso (kg) + Modo + Custo Total BRL */}
-                <div className="mt-2.5 pt-2 border-t border-slate-800/70 flex items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-300">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Disc3 className="w-3.5 h-3.5 text-purple-400" />
-                      <strong>{summary?.totalItemsCount || 0}</strong>{' '}
-                      {(summary?.totalItemsCount || 0) === 1 ? 'CD' : 'CDs'}
-                    </span>
-
-                    {ship.weightKg && ship.weightKg > 0 && (
-                      <span
-                        className="inline-flex items-center gap-1 rounded bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 text-[10px] font-mono text-emerald-300"
-                        title="Peso registrado do pacote"
-                      >
-                        <Scale className="w-2.5 h-2.5" />
-                        {formatWeightKg(ship.weightKg)}
-                      </span>
-                    )}
-
-                    {ship.consolidationMode === 'unpack_and_repack' && (
-                      <span className="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[10px] text-amber-300">
-                        Desempacotado
-                      </span>
-                    )}
-                    {ship.consolidationMode === 'group_only' && (
-                      <span className="rounded bg-indigo-500/15 border border-indigo-500/30 px-1.5 py-0.5 text-[10px] text-indigo-300">
-                        Agrupado
-                      </span>
-                    )}
-
-                    {(ship.ebayOrderUrl || ship.ebayOrderId) && (
-                      <a
-                        href={
-                          ship.ebayOrderUrl ||
-                          `https://order.ebay.com/ord/show?orderId=${ship.ebayOrderId}`
-                        }
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        title="Abrir pedido original no eBay"
-                        className="inline-flex items-center gap-1 rounded bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 px-1.5 py-0.5 text-[10px] font-mono text-sky-300 transition"
-                      >
-                        <span>
-                          {ship.ebayOrderId
-                            ? `#${ship.ebayOrderId}`
-                            : 'Pedido eBay'}
+                      {ship.consolidationMode === 'unpack_and_repack' && (
+                        <span className="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[10px] text-amber-300">
+                          Desempacotado
                         </span>
-                        <ExternalLink className="w-2.5 h-2.5" />
-                      </a>
-                    )}
-                  </div>
+                      )}
+                      {ship.consolidationMode === 'group_only' && (
+                        <span className="rounded bg-indigo-500/15 border border-indigo-500/30 px-1.5 py-0.5 text-[10px] text-indigo-300">
+                          Agrupado
+                        </span>
+                      )}
 
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-sm font-bold font-mono text-emerald-400">
-                      {formatBrl(summary?.totalShipmentCostBrl || 0)}
-                    </span>
-                    <ChevronRight className="w-4 h-4 text-slate-500 lg:hidden" />
+                      {(ship.ebayOrderUrl || ship.ebayOrderId) && (
+                        <a
+                          href={
+                            ship.ebayOrderUrl ||
+                            `https://order.ebay.com/ord/show?orderId=${ship.ebayOrderId}`
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          title="Abrir pedido original no eBay"
+                          className="inline-flex items-center gap-1 rounded bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 px-1.5 py-0.5 text-[10px] font-mono text-sky-300 transition"
+                        >
+                          <span>
+                            {ship.ebayOrderId
+                              ? `#${ship.ebayOrderId}`
+                              : 'Pedido eBay'}
+                          </span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-sm font-bold font-mono text-emerald-400">
+                        {formatBrl(summary?.totalShipmentCostBrl || 0)}
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-slate-500 lg:hidden" />
+                    </div>
                   </div>
                 </div>
-              </div>
+              </React.Fragment>
             );
           })
         )}

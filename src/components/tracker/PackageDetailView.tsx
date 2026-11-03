@@ -190,10 +190,10 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
         <>
           {/* CARD DE CABEÇALHO E CUSTOS DO PACOTE SELECIONADO */}
           <div className="rounded-2xl bg-slate-900/60 border border-slate-800/90 p-4 sm:p-5 space-y-4">
-            {/* Linha Superior: Nome (com edição inline e trava), Status, Rastreio, Peso e Botões de Ação */}
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-4 border-b border-slate-800">
-              <div className="space-y-2 min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
+            {/* Cabeçalho do Pacote: Linha 1 (Título + Status + Ações) e Linha 2 (Metadados em linha única) */}
+            <div className="space-y-2.5 pb-3.5 border-b border-slate-800">
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
                   {isEditingTitle ? (
                     <div className="flex items-center gap-1.5 flex-1 min-w-[220px] max-w-md">
                       <input
@@ -235,7 +235,7 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                           setIsEditingTitle(true);
                         }}
                         title="Clique para personalizar o nome deste pacote"
-                        className="text-lg sm:text-xl font-bold text-white cursor-pointer hover:text-indigo-300 transition truncate"
+                        className="text-base sm:text-lg font-bold text-white cursor-pointer hover:text-indigo-300 transition truncate"
                       >
                         {selectedSummary.shipment.name}
                       </h2>
@@ -247,7 +247,7 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                             ? 'Nome personalizado travado. Clique para voltar ao nome automático gerado pelos CDs.'
                             : 'Nome gerado automaticamente. Clique para travar o nome atual.'
                         }
-                        className={`p-1 rounded-lg border text-xs transition ${
+                        className={`p-1 rounded-lg border text-xs transition shrink-0 ${
                           selectedSummary.shipment.isCustomName
                             ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
                             : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white'
@@ -270,7 +270,7 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                         e.target.value as ShipmentStatus
                       )
                     }
-                    className={`rounded-full border px-3 py-1 text-xs font-semibold cursor-pointer focus:outline-none ${
+                    className={`rounded-full border px-2.5 py-1 text-xs font-semibold cursor-pointer focus:outline-none shrink-0 ${
                       STATUS_LABELS[selectedSummary.shipment.status].badgeClass
                     }`}
                   >
@@ -311,343 +311,514 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
 
                   {selectedSummary.shipment.consolidationMode ===
                     'unpack_and_repack' && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 text-[11px] font-medium text-amber-300">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 text-[11px] font-medium text-amber-300 whitespace-nowrap shrink-0">
                       <PackageOpen className="w-3 h-3" />
                       Desempacotado
                     </span>
                   )}
                   {selectedSummary.shipment.consolidationMode ===
                     'group_only' && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 px-2.5 py-0.5 text-[11px] font-medium text-indigo-300">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 px-2.5 py-0.5 text-[11px] font-medium text-indigo-300 whitespace-nowrap shrink-0">
                       <PackageCheck className="w-3 h-3" />
                       Agrupado
                     </span>
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-slate-400">
-                  <span className="inline-flex items-center gap-1">
-                    <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                    Compra:{' '}
-                    <strong className="text-slate-200">
-                      {selectedSummary.shipment.shippingDate
-                        ? new Date(
-                            selectedSummary.shipment.shippingDate + 'T12:00:00'
-                          ).toLocaleDateString('pt-BR')
-                        : selectedSummary.shipment.createdAt
-                        ? new Date(
-                            selectedSummary.shipment.createdAt
-                          ).toLocaleDateString('pt-BR')
-                        : 'Não informada'}
-                    </strong>
-                  </span>
-
-                  <span className="hidden sm:inline">•</span>
-
-                  <span className="inline-flex items-center gap-1">
-                    Câmbio:{' '}
-                    <strong className="text-indigo-300 font-mono">
-                      1 {selectedSummary.shipment.currency} ≈ R${' '}
-                      {selectedSummary.shipment.exchangeRate.toFixed(2)}
-                    </strong>
-                  </span>
-
-                  <span className="hidden sm:inline">•</span>
-
-                  {isEditingWeight ? (
-                    <span className="inline-flex items-center gap-1">
-                      <Scale className="w-3.5 h-3.5 text-emerald-400" />
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        autoFocus
-                        placeholder="0.80"
-                        value={weightDraft}
-                        onChange={(e) => setWeightDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleCommitWeight(selectedSummary.shipment.id);
-                          } else if (e.key === 'Escape') {
-                            setIsEditingWeight(false);
-                          }
-                        }}
-                        className="w-20 rounded bg-slate-950 border border-emerald-500 px-2 py-0.5 text-xs font-mono text-white focus:outline-none"
-                      />
-                      <span className="text-[11px] font-mono text-slate-400">
-                        kg
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleCommitWeight(selectedSummary.shipment.id)}
-                        className="p-1 rounded bg-emerald-600 text-white hover:bg-emerald-500"
-                        title="Salvar peso"
-                      >
-                        <Check className="w-3 h-3" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsEditingWeight(false)}
-                        className="p-1 rounded bg-slate-800 text-slate-300 hover:text-white"
-                        title="Cancelar"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </span>
-                  ) : (
+                {/* Ações do Pacote */}
+                <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                  {(selectedSummary.shipment.status !== 'comprado' ||
+                    selectedSummary.shipment.consolidationMode === 'group_only' ||
+                    selectedSummary.shipment.consolidationMode === 'unpack_and_repack' ||
+                    selectedSummary.items.some((cd) => cd.isConsolidated)) && (
                     <button
                       type="button"
-                      onClick={() => {
-                        setWeightDraft(
-                          selectedSummary.weightKg
-                            ? String(selectedSummary.weightKg)
-                            : ''
-                        );
-                        setIsEditingWeight(true);
-                      }}
-                      className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 font-mono text-[11px] transition ${
-                        selectedSummary.weightKg
-                          ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25'
-                          : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-emerald-500/50 hover:text-emerald-300'
-                      }`}
-                      title={
-                        selectedSummary.shippingCostPerKgOriginal
-                          ? `Clique para editar o peso • Frete Internacional por kg: ${formatOriginalCurrency(
-                              selectedSummary.shippingCostPerKgOriginal,
-                              selectedSummary.shipment.currency
-                            )}/kg (${formatBrl(
-                              selectedSummary.shippingCostPerKgBrl || 0
-                            )}/kg)`
-                          : 'Clique para definir ou alterar o peso deste pacote em kg'
-                      }
+                      onClick={() => onRevertPackageToSingle(selectedSummary.shipment)}
+                      title="Desfaz o status de consolidado deste pacote para que seus CDs fiquem disponíveis novamente para consolidação"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-600/80 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition whitespace-nowrap"
                     >
-                      <Scale className="w-3 h-3 text-emerald-400" />
-                      {selectedSummary.weightKg ? (
-                        <>
-                          {formatWeightKg(selectedSummary.weightKg)}
-                          {selectedSummary.gramsPerDisc
-                            ? ` (~${selectedSummary.gramsPerDisc}g/CD)`
-                            : ''}
-                        </>
-                      ) : (
-                        <span>+ Definir Peso (kg)</span>
-                      )}
+                      <RotateCcw className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Voltar p/ Único</span>
                     </button>
                   )}
 
-                  {selectedSummary.shipment.internationalTrackingCode && (
-                    <a
-                      href={`https://portalimportador.correios.com.br/pages/pesquisarRemessaImportador/pesquisarRemessaImportador.jsf#track=${encodeURIComponent(
-                        selectedSummary.shipment.internationalTrackingCode.trim()
-                      )}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => {
-                        const code =
-                          selectedSummary.shipment.internationalTrackingCode?.trim();
-                        if (code && navigator.clipboard?.writeText) {
-                          navigator.clipboard
-                            .writeText(code)
-                            .then(() => {
-                              showToast(
-                                `Código ${code} copiado! Cole (Cmd+V / Ctrl+V) na busca dos Correios.`
-                              );
-                            })
-                            .catch(() => {});
-                        }
-                      }}
-                      className="inline-flex items-center gap-1 rounded-md bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 font-mono text-[11px] text-sky-300 hover:bg-sky-500/25 transition"
-                      title="Abrir Minhas Importações (Correios) com o código de rastreio"
-                    >
-                      <Truck className="w-3 h-3" />
-                      {selectedSummary.shipment.internationalTrackingCode}
-                      <ExternalLink className="w-2.5 h-2.5" />
-                    </a>
-                  )}
+                  <button
+                    onClick={() => onApplyMgTaxEstimate(selectedSummary)}
+                    title={`Calcula (Soma dos CDs) * Câmbio * ${MG_TAX_FACTOR} (apenas sobre o valor dos produtos)`}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 px-2.5 py-1.5 text-xs font-semibold text-amber-300 transition whitespace-nowrap"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>
+                      Estimar MG ({formatBrl(selectedSummary.estimatedTaxMgBrl)})
+                    </span>
+                  </button>
 
-                  {(selectedSummary.shipment.ebayOrderUrl ||
-                    selectedSummary.shipment.ebayOrderId) && (
-                    <a
-                      href={
-                        selectedSummary.shipment.ebayOrderUrl ||
-                        `https://order.ebay.com/ord/show?orderId=${selectedSummary.shipment.ebayOrderId}`
-                      }
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 rounded-md bg-indigo-500/15 border border-indigo-500/30 px-2 py-0.5 font-mono text-[11px] text-indigo-300 hover:bg-indigo-500/25 transition"
-                      title="Abrir detalhes do pedido original no eBay"
-                    >
-                      <span>
-                        Pedido eBay{' '}
-                        {selectedSummary.shipment.ebayOrderId
-                          ? `#${selectedSummary.shipment.ebayOrderId}`
-                          : ''}
-                      </span>
-                      <ExternalLink className="w-2.5 h-2.5" />
-                    </a>
-                  )}
+                  <button
+                    onClick={() => onEditShipment(selectedSummary.shipment)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition whitespace-nowrap"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Editar Pacote</span>
+                  </button>
+
+                  <button
+                    onClick={() => onDuplicateShipment(selectedSummary.shipment)}
+                    title="Criar uma cópia deste pacote com todas as taxas e CDs"
+                    className="inline-flex items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 p-1.5 text-slate-300 hover:text-white transition"
+                  >
+                    <Copy className="w-4 h-4 text-sky-400" />
+                  </button>
+
+                  <button
+                    onClick={() => onDeleteShipment(selectedSummary.shipment)}
+                    title="Excluir pacote"
+                    className="inline-flex items-center justify-center rounded-xl bg-rose-950/40 hover:bg-rose-900/50 border border-rose-800/50 p-1.5 text-rose-300 transition"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
-
-                {selectedSummary.shipment.notes && (
-                  <p className="text-xs text-slate-400 italic">
-                    “{selectedSummary.shipment.notes}”
-                  </p>
-                )}
               </div>
 
-              {/* Ações do Pacote */}
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                {(selectedSummary.shipment.status !== 'comprado' ||
-                  selectedSummary.shipment.consolidationMode === 'group_only' ||
-                  selectedSummary.shipment.consolidationMode === 'unpack_and_repack' ||
-                  selectedSummary.items.some((cd) => cd.isConsolidated)) && (
+              {/* Linha 2 (Largura Total): Data, Câmbio, Peso, Rastreio e Pedido eBay sem quebrar linhas */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-slate-400">
+                <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                  <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                  Compra:{' '}
+                  <strong className="text-slate-200">
+                    {selectedSummary.shipment.shippingDate
+                      ? new Date(
+                          selectedSummary.shipment.shippingDate + 'T12:00:00'
+                        ).toLocaleDateString('pt-BR')
+                      : selectedSummary.shipment.createdAt
+                      ? new Date(
+                          selectedSummary.shipment.createdAt
+                        ).toLocaleDateString('pt-BR')
+                      : 'Não informada'}
+                  </strong>
+                </span>
+
+                <span className="hidden sm:inline text-slate-600">•</span>
+
+                <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                  Câmbio:{' '}
+                  <strong className="text-indigo-300 font-mono">
+                    1 {selectedSummary.shipment.currency} ≈ R${' '}
+                    {selectedSummary.shipment.exchangeRate.toFixed(2)}
+                  </strong>
+                </span>
+
+                <span className="hidden sm:inline text-slate-600">•</span>
+
+                {isEditingWeight ? (
+                  <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                    <Scale className="w-3.5 h-3.5 text-emerald-400" />
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      autoFocus
+                      placeholder="0.80"
+                      value={weightDraft}
+                      onChange={(e) => setWeightDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleCommitWeight(selectedSummary.shipment.id);
+                        } else if (e.key === 'Escape') {
+                          setIsEditingWeight(false);
+                        }
+                      }}
+                      className="w-20 rounded bg-slate-950 border border-emerald-500 px-2 py-0.5 text-xs font-mono text-white focus:outline-none"
+                    />
+                    <span className="text-[11px] font-mono text-slate-400">
+                      kg
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleCommitWeight(selectedSummary.shipment.id)}
+                      className="p-1 rounded bg-emerald-600 text-white hover:bg-emerald-500"
+                      title="Salvar peso"
+                    >
+                      <Check className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingWeight(false)}
+                      className="p-1 rounded bg-slate-800 text-slate-300 hover:text-white"
+                      title="Cancelar"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ) : (
                   <button
                     type="button"
-                    onClick={() => onRevertPackageToSingle(selectedSummary.shipment)}
-                    title="Desfaz o status de consolidado deste pacote para que seus CDs fiquem disponíveis novamente para consolidação"
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-600/80 px-3 py-2 text-xs font-medium text-slate-200 transition"
+                    onClick={() => {
+                      setWeightDraft(
+                        selectedSummary.weightKg
+                          ? String(selectedSummary.weightKg)
+                          : ''
+                      );
+                      setIsEditingWeight(true);
+                    }}
+                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 font-mono text-[11px] transition whitespace-nowrap ${
+                      selectedSummary.weightKg
+                        ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25'
+                        : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-emerald-500/50 hover:text-emerald-300'
+                    }`}
+                    title={
+                      selectedSummary.shippingCostPerKgOriginal
+                        ? `Clique para editar o peso • Frete Internacional por kg: ${formatOriginalCurrency(
+                            selectedSummary.shippingCostPerKgOriginal,
+                            selectedSummary.shipment.currency
+                          )}/kg (${formatBrl(
+                            selectedSummary.shippingCostPerKgBrl || 0
+                          )}/kg)`
+                        : 'Clique para definir ou alterar o peso deste pacote em kg'
+                    }
                   >
-                    <RotateCcw className="w-3.5 h-3.5 text-sky-400" />
-                    <span>Voltar p/ Pacote Único</span>
+                    <Scale className="w-3 h-3 text-emerald-400" />
+                    {selectedSummary.weightKg ? (
+                      <>
+                        {formatWeightKg(selectedSummary.weightKg)}
+                        {selectedSummary.gramsPerDisc
+                          ? ` (~${selectedSummary.gramsPerDisc}g/CD)`
+                          : ''}
+                      </>
+                    ) : (
+                      <span>+ Definir Peso (kg)</span>
+                    )}
                   </button>
                 )}
 
-                <button
-                  onClick={() => onApplyMgTaxEstimate(selectedSummary)}
-                  title={`Calcula (Soma dos CDs) * Câmbio * ${MG_TAX_FACTOR} (apenas sobre o valor dos produtos)`}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 px-3 py-2 text-xs font-semibold text-amber-300 transition"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                  <span>
-                    Estimar MG ({formatBrl(selectedSummary.estimatedTaxMgBrl)})
-                  </span>
-                </button>
+                {selectedSummary.shipment.internationalTrackingCode && (
+                  <a
+                    href={`https://portalimportador.correios.com.br/pages/pesquisarRemessaImportador/pesquisarRemessaImportador.jsf#track=${encodeURIComponent(
+                      selectedSummary.shipment.internationalTrackingCode.trim()
+                    )}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => {
+                      const code =
+                        selectedSummary.shipment.internationalTrackingCode?.trim();
+                      if (code && navigator.clipboard?.writeText) {
+                        navigator.clipboard
+                          .writeText(code)
+                          .then(() => {
+                            showToast(
+                              `Código ${code} copiado! Cole (Cmd+V / Ctrl+V) na busca dos Correios.`
+                            );
+                          })
+                          .catch(() => {});
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 font-mono text-[11px] text-sky-300 hover:bg-sky-500/25 transition whitespace-nowrap"
+                    title="Abrir Minhas Importações (Correios) com o código de rastreio"
+                  >
+                    <Truck className="w-3 h-3" />
+                    {selectedSummary.shipment.internationalTrackingCode}
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                )}
 
-                <button
-                  onClick={() => onEditShipment(selectedSummary.shipment)}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-2 text-xs font-medium text-slate-200 transition"
-                >
-                  <Edit3 className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Editar Pacote</span>
-                </button>
-
-                <button
-                  onClick={() => onDuplicateShipment(selectedSummary.shipment)}
-                  title="Criar uma cópia deste pacote com todas as taxas e CDs"
-                  className="inline-flex items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 p-2 text-slate-300 hover:text-white transition"
-                >
-                  <Copy className="w-4 h-4 text-sky-400" />
-                </button>
-
-                <button
-                  onClick={() => onDeleteShipment(selectedSummary.shipment)}
-                  title="Excluir pacote"
-                  className="inline-flex items-center justify-center rounded-xl bg-rose-950/40 hover:bg-rose-900/50 border border-rose-800/50 p-2 text-rose-300 transition"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {(selectedSummary.shipment.ebayOrderUrl ||
+                  selectedSummary.shipment.ebayOrderId) && (
+                  <a
+                    href={
+                      selectedSummary.shipment.ebayOrderUrl ||
+                      `https://order.ebay.com/ord/show?orderId=${selectedSummary.shipment.ebayOrderId}`
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md bg-indigo-500/15 border border-indigo-500/30 px-2 py-0.5 font-mono text-[11px] text-indigo-300 hover:bg-indigo-500/25 transition whitespace-nowrap"
+                    title="Abrir detalhes do pedido original no eBay"
+                  >
+                    <span>
+                      Pedido eBay{' '}
+                      {selectedSummary.shipment.ebayOrderId
+                        ? `#${selectedSummary.shipment.ebayOrderId}`
+                        : ''}
+                    </span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                )}
               </div>
+
+              {selectedSummary.shipment.notes && (
+                <p className="text-xs text-slate-400 italic">
+                  “{selectedSummary.shipment.notes}”
+                </p>
+              )}
             </div>
 
-            {/* PAINEL DE 4 CARDS COM DETALHAMENTO INTEGRADO */}
-            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-              {/* Card 1: Custo dos CDs (Direto) */}
-              <div className="rounded-xl bg-slate-950/80 border border-slate-800/90 p-3.5 flex flex-col justify-between space-y-1.5">
+            {/* PAINEL DE 4 CARDS COM RELATÓRIO DETALHADO DE VALORES DO PACOTE */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5">
+              {/* Card 1: Custo do Pacote (com custo por item) */}
+              <div className="rounded-xl bg-slate-950/80 border border-slate-800/90 p-3 flex flex-col justify-between space-y-2">
                 <div>
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span>1. Soma dos CDs</span>
+                  <div className="flex items-center justify-between text-[11px] font-medium text-slate-400 whitespace-nowrap">
+                    <span>1. Custo do Pacote</span>
                     <Disc3 className="w-3.5 h-3.5 text-purple-400 shrink-0" />
                   </div>
-                  <div className="text-base sm:text-lg font-bold font-mono text-white mt-0.5">
-                    {formatBrl(selectedSummary.totalItemsBrl)}
+                  <div className="flex items-baseline gap-1.5 mt-0.5 whitespace-nowrap">
+                    <span className="text-base sm:text-lg font-bold font-mono text-white">
+                      {formatBrl(selectedSummary.totalItemsBrl)}
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      (
+                      {formatOriginalCurrency(
+                        selectedSummary.totalItemsOriginal,
+                        selectedSummary.shipment.currency
+                      )}
+                      )
+                    </span>
                   </div>
                 </div>
-                <div className="text-[11px] text-slate-400 font-mono">
-                  {formatOriginalCurrency(
-                    selectedSummary.totalItemsOriginal,
-                    selectedSummary.shipment.currency
-                  )}{' '}
-                  • {selectedSummary.totalItemsCount} CDs (
-                  {selectedSummary.totalPhysicalDiscsCount} discos)
+
+                <div className="pt-2 border-t border-slate-800/80 space-y-1 text-[10.5px] font-mono">
+                  <div className="flex items-center justify-between gap-1 text-slate-300 whitespace-nowrap">
+                    <span className="text-slate-400 font-sans">Custo / Item:</span>
+                    <span>
+                      <strong className="text-purple-300">
+                        {formatBrl(
+                          selectedSummary.totalItemsCount > 0
+                            ? selectedSummary.totalItemsBrl /
+                                selectedSummary.totalItemsCount
+                            : 0
+                        )}
+                      </strong>{' '}
+                      <span className="text-slate-400">
+                        (
+                        {formatOriginalCurrency(
+                          selectedSummary.totalItemsCount > 0
+                            ? selectedSummary.totalItemsOriginal /
+                                selectedSummary.totalItemsCount
+                            : 0,
+                          selectedSummary.shipment.currency
+                        )}
+                        )
+                      </span>
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-1 text-slate-400 whitespace-nowrap">
+                    <span className="font-sans">Quantidade:</span>
+                    <span className="text-slate-300">
+                      {selectedSummary.totalItemsCount}{' '}
+                      {selectedSummary.totalItemsCount === 1 ? 'item' : 'itens'} (
+                      {selectedSummary.totalPhysicalDiscsCount}{' '}
+                      {selectedSummary.totalPhysicalDiscsCount === 1
+                        ? 'disco'
+                        : 'discos'}
+                      )
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              {/* Card 2: Custo Indireto Total */}
-              <div className="rounded-xl bg-slate-950/80 border border-slate-800/90 p-3.5 flex flex-col justify-between space-y-1.5">
+              {/* Card 2: Custos Adicionais Totais */}
+              <div className="rounded-xl bg-slate-950/80 border border-slate-800/90 p-3 flex flex-col justify-between space-y-2">
                 <div>
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span>2. Custos Indiretos</span>
+                  <div className="flex items-center justify-between text-[11px] font-medium text-slate-400 whitespace-nowrap">
+                    <span>2. Custos Adicionais Totais</span>
                     <Receipt className="w-3.5 h-3.5 text-sky-400 shrink-0" />
                   </div>
-                  <div className="text-base sm:text-lg font-bold font-mono text-sky-300 mt-0.5">
+                  <div className="text-base sm:text-lg font-bold font-mono text-sky-300 mt-0.5 whitespace-nowrap">
                     {formatBrl(selectedSummary.totalIndirectCostBrl)}
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] font-mono text-slate-400">
-                  <span title="Frete Local + Redirecionador + Frete Internacional">
-                    Fretes:{' '}
-                    <strong className="text-slate-300">
-                      {formatOriginalCurrency(
-                        selectedSummary.totalInternalShippingOriginal +
-                          selectedSummary.shipment.forwarderFee +
+
+                <div className="pt-2 border-t border-slate-800/80 space-y-1 text-[10.5px] font-mono">
+                  <div className="flex items-center justify-between gap-1 text-slate-300 whitespace-nowrap">
+                    <span className="text-slate-400 font-sans">
+                      Frete eBay:
+                    </span>
+                    <span>
+                      <strong className="text-slate-200">
+                        {formatBrl(
+                          selectedSummary.totalInternalShippingOriginal *
+                            selectedSummary.shipment.exchangeRate
+                        )}
+                      </strong>{' '}
+                      <span className="text-slate-400">
+                        (
+                        {formatOriginalCurrency(
+                          selectedSummary.totalInternalShippingOriginal,
+                          selectedSummary.shipment.currency
+                        )}
+                        )
+                      </span>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-1 text-slate-300 whitespace-nowrap">
+                    <span className="text-slate-400 font-sans">
+                      Frete Redirec.:
+                    </span>
+                    <span>
+                      <strong className="text-slate-200">
+                        {formatBrl(
+                          selectedSummary.shipment.internationalShipping *
+                            selectedSummary.shipment.exchangeRate
+                        )}
+                      </strong>{' '}
+                      <span className="text-slate-400">
+                        (
+                        {formatOriginalCurrency(
                           selectedSummary.shipment.internationalShipping,
-                        selectedSummary.shipment.currency
-                      )}
-                    </strong>
-                  </span>
-                  <span>•</span>
-                  <span title="Taxa de Importação / Alfândega no Brasil">
-                    Taxa BR:{' '}
-                    <strong className="text-amber-300">
+                          selectedSummary.shipment.currency
+                        )}
+                        )
+                      </span>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-1 text-slate-300 whitespace-nowrap">
+                    <span className="text-slate-400 font-sans">
+                      Consolidação:
+                    </span>
+                    <span>
+                      <strong className="text-slate-200">
+                        {formatBrl(
+                          selectedSummary.shipment.forwarderFee *
+                            selectedSummary.shipment.exchangeRate
+                        )}
+                      </strong>{' '}
+                      <span className="text-slate-400">
+                        (
+                        {formatOriginalCurrency(
+                          selectedSummary.shipment.forwarderFee,
+                          selectedSummary.shipment.currency
+                        )}
+                        )
+                      </span>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-1 text-slate-300 whitespace-nowrap">
+                    <span className="text-slate-400 font-sans">
+                      Imposto Brasil:
+                    </span>
+                    <span className="text-amber-300 font-semibold">
                       {formatBrl(selectedSummary.shipment.customsTaxBrl)}
-                    </strong>
-                    {selectedSummary.shipment.isTaxEstimated && ' (Est.)'}
-                  </span>
+                      {selectedSummary.shipment.isTaxEstimated && (
+                        <span className="text-[9px] text-amber-400/80 ml-1">
+                          (Est.)
+                        </span>
+                      )}
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              {/* Card 3: Rateio Unitário por CD */}
-              <div className="rounded-xl bg-indigo-950/30 border border-indigo-500/30 p-3.5 flex flex-col justify-between space-y-1.5">
+              {/* Card 3: Rateio por Item */}
+              <div className="rounded-xl bg-indigo-950/30 border border-indigo-500/30 p-3 flex flex-col justify-between space-y-2">
                 <div>
-                  <div className="flex items-center justify-between text-[11px] text-indigo-300">
-                    <span>3. Rateio / CD</span>
+                  <div className="flex items-center justify-between text-[11px] font-medium text-indigo-300 whitespace-nowrap">
+                    <span>3. Rateio por Item</span>
                     <Info className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                   </div>
-                  <div className="text-base sm:text-lg font-bold font-mono text-indigo-300 mt-0.5">
-                    + {formatBrl(selectedSummary.allocatedCostPerItemBrl)}
+                  <div className="flex items-baseline gap-1.5 mt-0.5 whitespace-nowrap">
+                    <span className="text-base sm:text-lg font-bold font-mono text-indigo-300">
+                      + {formatBrl(selectedSummary.allocatedCostPerItemBrl)}
+                    </span>
+                    <span className="text-[11px] font-mono text-indigo-300/70">
+                      (
+                      {formatOriginalCurrency(
+                        selectedSummary.totalItemsCount > 0 &&
+                          selectedSummary.shipment.exchangeRate > 0
+                          ? selectedSummary.allocatedCostPerItemBrl /
+                              selectedSummary.shipment.exchangeRate
+                          : 0,
+                        selectedSummary.shipment.currency
+                      )}
+                      )
+                    </span>
                   </div>
                 </div>
-                <div className="text-[11px] text-indigo-200/70 truncate">
-                  {selectedSummary.totalItemsCount > 0
-                    ? `${formatBrl(
-                        selectedSummary.totalIndirectCostBrl
-                      )} ÷ ${selectedSummary.totalItemsCount} CDs`
-                    : 'Sem CDs no pacote'}
+
+                <div className="pt-2 border-t border-indigo-500/20 space-y-1 text-[10.5px] font-mono text-indigo-200/80">
+                  <div className="flex items-center justify-between gap-1 whitespace-nowrap">
+                    <span className="font-sans text-indigo-300/70">Divisão:</span>
+                    <span>
+                      {selectedSummary.totalItemsCount > 0
+                        ? `${formatBrl(
+                            selectedSummary.totalIndirectCostBrl
+                          )} ÷ ${selectedSummary.totalItemsCount} ${
+                            selectedSummary.totalItemsCount === 1
+                              ? 'item'
+                              : 'itens'
+                          }`
+                        : 'Sem itens no pacote'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-1 whitespace-nowrap">
+                    <span className="font-sans text-indigo-300/70">
+                      Rateio / Disco:
+                    </span>
+                    <span>
+                      +{' '}
+                      {formatBrl(
+                        selectedSummary.totalPhysicalDiscsCount > 0
+                          ? selectedSummary.totalIndirectCostBrl /
+                              selectedSummary.totalPhysicalDiscsCount
+                          : 0
+                      )}
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              {/* Card 4: Custo Final Consolidado da Caixa */}
-              <div className="rounded-xl bg-emerald-950/25 border border-emerald-500/30 p-3.5 flex flex-col justify-between space-y-1.5">
+              {/* Card 4: Custo Total do Pacote */}
+              <div className="rounded-xl bg-emerald-950/25 border border-emerald-500/30 p-3 flex flex-col justify-between space-y-2">
                 <div>
-                  <div className="flex items-center justify-between text-[11px] text-emerald-300">
-                    <span>4. Total do Pacote</span>
+                  <div className="flex items-center justify-between text-[11px] font-medium text-emerald-300 whitespace-nowrap">
+                    <span>4. Custo Total do Pacote</span>
                     <Box className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                   </div>
-                  <div className="text-base sm:text-lg font-bold font-mono text-emerald-400 mt-0.5">
-                    {formatBrl(selectedSummary.totalShipmentCostBrl)}
+                  <div className="flex items-baseline gap-1.5 mt-0.5 whitespace-nowrap">
+                    <span className="text-base sm:text-lg font-bold font-mono text-emerald-400">
+                      {formatBrl(selectedSummary.totalShipmentCostBrl)}
+                    </span>
+                    <span className="text-[11px] font-mono text-emerald-300/70">
+                      (
+                      {formatOriginalCurrency(
+                        selectedSummary.shipment.exchangeRate > 0
+                          ? selectedSummary.totalShipmentCostBrl /
+                              selectedSummary.shipment.exchangeRate
+                          : 0,
+                        selectedSummary.shipment.currency
+                      )}
+                      )
+                    </span>
                   </div>
                 </div>
-                <div className="text-[11px] text-emerald-200/70">
-                  Média:{' '}
-                  <strong className="font-mono">
-                    {selectedSummary.totalItemsCount > 0
-                      ? formatBrl(
-                          selectedSummary.totalShipmentCostBrl /
-                            selectedSummary.totalItemsCount
-                        )
-                      : 'R$ 0,00'}
-                  </strong>
-                  /CD
+
+                <div className="pt-2 border-t border-emerald-500/20 space-y-1 text-[10.5px] font-mono text-emerald-200/80">
+                  <div className="flex items-center justify-between gap-1 whitespace-nowrap">
+                    <span className="font-sans text-emerald-300/70">
+                      Média Final / Item:
+                    </span>
+                    <strong className="text-emerald-300">
+                      {selectedSummary.totalItemsCount > 0
+                        ? formatBrl(
+                            selectedSummary.totalShipmentCostBrl /
+                              selectedSummary.totalItemsCount
+                          )
+                        : 'R$ 0,00'}
+                    </strong>
+                  </div>
+                  <div className="flex items-center justify-between gap-1 whitespace-nowrap">
+                    <span className="font-sans text-emerald-300/70">
+                      Média / Disco:
+                    </span>
+                    <span>
+                      {selectedSummary.totalPhysicalDiscsCount > 0
+                        ? formatBrl(
+                            selectedSummary.totalShipmentCostBrl /
+                              selectedSummary.totalPhysicalDiscsCount
+                          )
+                        : 'R$ 0,00'}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -667,28 +838,26 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 {selectedSummary.items.length > 0 && (
                   <button
                     onClick={onFetchAllCovers}
                     disabled={isFetchingCoversBatch}
                     title="Busca automaticamente na internet a capa de todos os CDs sem capa"
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 px-3 py-2 text-xs font-medium text-indigo-300 transition disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 px-2.5 py-2 text-xs font-medium text-indigo-300 transition disabled:opacity-50 whitespace-nowrap"
                   >
                     {isFetchingCoversBatch ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
                       <ImageIcon className="w-3.5 h-3.5" />
                     )}
-                    <span className="hidden sm:inline">
-                      Buscar Capas Automaticamente
-                    </span>
+                    <span className="hidden sm:inline">Buscar Capas</span>
                     <span className="sm:hidden">Capas</span>
                   </button>
                 )}
 
                 {/* Seletor de Ordenação */}
-                <div className="flex items-center gap-1.5 rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-300">
+                <div className="flex items-center gap-1.5 rounded-xl bg-slate-950 border border-slate-800 px-2.5 py-2 text-xs text-slate-300 whitespace-nowrap">
                   <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   <select
                     value={cdSortBy}
@@ -720,7 +889,7 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
 
                 <button
                   onClick={onOpenAddCD}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-purple-600/25 transition ml-auto sm:ml-0"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-purple-600/25 transition ml-auto sm:ml-0 whitespace-nowrap"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Adicionar CD / Bundle</span>

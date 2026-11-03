@@ -30,25 +30,33 @@ function getUserDbFile(userId: string): string {
 
 async function kvGet(key: string): Promise<string | null> {
   if (!KV_URL || !KV_TOKEN) return null;
-  const res = await fetch(`${KV_URL}/get/${encodeURIComponent(key)}`, {
-    headers: { Authorization: `Bearer ${KV_TOKEN}` },
-    cache: 'no-store',
-    signal: AbortSignal.timeout(6000),
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  return typeof data?.result === 'string' ? data.result : null;
+  try {
+    const res = await fetch(`${KV_URL}/get/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${KV_TOKEN}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data?.result === 'string' ? data.result : null;
+  } catch {
+    return null;
+  }
 }
 
 async function kvSet(key: string, value: string): Promise<boolean> {
   if (!KV_URL || !KV_TOKEN) return false;
-  const res = await fetch(`${KV_URL}/set/${encodeURIComponent(key)}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${KV_TOKEN}` },
-    body: value,
-    signal: AbortSignal.timeout(6000),
-  });
-  return res.ok;
+  try {
+    const res = await fetch(`${KV_URL}/set/${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${KV_TOKEN}` },
+      body: value,
+      signal: AbortSignal.timeout(6000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function migrateLegacyDbIfFirstUser(
