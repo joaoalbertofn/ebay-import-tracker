@@ -32,6 +32,16 @@ export function loadFeePresetsForCurrency(curr: CurrencyCode): {
       ) {
         savedGroup = parsed[curr]!.groupOnlyFee;
         savedUnpack = parsed[curr]!.unpackAndRepackFee;
+
+        // Auto-correção caso o usuário tenha salvo o total de múltiplos pacotes (ex: £10.80 de 3 pacotes) como taxa unitária em GBP
+        if (curr === 'GBP') {
+          if (savedUnpack >= 7.2 && Math.abs(savedUnpack % 3.6) < 0.05) {
+            savedUnpack = meta.defaultUnpackAndRepackFee;
+          }
+          if (savedGroup >= 7.2) {
+            savedGroup = meta.defaultGroupOnlyFee;
+          }
+        }
       }
     }
   } catch {

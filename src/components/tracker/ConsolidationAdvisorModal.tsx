@@ -25,7 +25,10 @@ import {
   generateConsolidationAdvisorReport,
   getEstimatedIntlShippingForWeight,
 } from '@/lib/domain/consolidationAdvisor';
-import { loadFeePresetsForCurrency } from '@/lib/storage/feePresets';
+import {
+  loadFeePresetsForCurrency,
+  saveFeePresetsForCurrency,
+} from '@/lib/storage/feePresets';
 import { CURRENCY_META } from '@/lib/calculations';
 import {
   formatBrl,
@@ -52,7 +55,7 @@ export const ConsolidationAdvisorModal: React.FC<
   onSelectPackagesInSidebar,
   onConsolidateSuggestion,
 }) => {
-  const [targetWeightKg, setTargetWeightKg] = useState<WeightTierKg>(1.0);
+  const [targetWeightKg, setTargetWeightKg] = useState<WeightTierKg>(1.2);
   // Se houver menos de 2 pacotes no redirecionador, já inicia com "Incluir Comprados" ativo para ser útil imediatamente
   const initialInForwarderCount = useMemo(
     () =>
@@ -96,7 +99,13 @@ export const ConsolidationAdvisorModal: React.FC<
         savedUnpack: CURRENCY_META[dominantCurrency].defaultUnpackAndRepackFee,
       };
     }
-    return loadFeePresetsForCurrency(dominantCurrency);
+    const loaded = loadFeePresetsForCurrency(dominantCurrency);
+    saveFeePresetsForCurrency(
+      dominantCurrency,
+      loaded.savedGroup,
+      loaded.savedUnpack
+    );
+    return loaded;
   }, [dominantCurrency, isOpen]);
 
   const defaultTierIntlShipping = useMemo(() => {
@@ -182,12 +191,12 @@ export const ConsolidationAdvisorModal: React.FC<
           <div className="rounded-xl bg-slate-950/80 border border-slate-800/90 p-3.5 sm:p-4 space-y-3.5">
             <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-end">
               {/* 1. Seletor de Meta de Peso */}
-              <div className="md:col-span-5 space-y-1.5">
+              <div className="md:col-span-6 space-y-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                   <Scale className="w-3.5 h-3.5 text-emerald-400" />
                   1. Meta / Limite de Peso da Caixa
                 </label>
-                <div className="grid grid-cols-4 gap-1.5">
+                <div className="grid grid-cols-5 gap-1.5">
                   {WEIGHT_TIER_OPTIONS.map((tier) => {
                     const isSelected = targetWeightKg === tier.weightKg;
                     return (
@@ -198,7 +207,7 @@ export const ConsolidationAdvisorModal: React.FC<
                           setTargetWeightKg(tier.weightKg);
                           setCustomIntlShipping('');
                         }}
-                        className={`rounded-xl border px-2 py-2 text-center transition cursor-pointer ${
+                        className={`rounded-xl border px-1.5 py-2 text-center transition cursor-pointer ${
                           isSelected
                             ? 'bg-emerald-500/20 border-emerald-400 text-white shadow-sm shadow-emerald-500/20'
                             : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -207,7 +216,7 @@ export const ConsolidationAdvisorModal: React.FC<
                         <div className="text-xs font-bold font-mono">
                           {tier.weightKg.toFixed(1).replace('.', ',')} kg
                         </div>
-                        <div className="text-[10px] opacity-80">
+                        <div className="text-[10px] opacity-80 truncate">
                           {tier.approxCdsLabel}
                         </div>
                       </button>
@@ -217,7 +226,7 @@ export const ConsolidationAdvisorModal: React.FC<
               </div>
 
               {/* 2. Modo de Consolidação */}
-              <div className="md:col-span-4 space-y-1.5">
+              <div className="md:col-span-3 space-y-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                   <Layers className="w-3.5 h-3.5 text-amber-400" />
                   2. Modo no Redirecionador
@@ -332,7 +341,7 @@ export const ConsolidationAdvisorModal: React.FC<
                 )}
                 <span>
                   Incluir &apos;Comprados&apos; na simulação (~
-                  {DEFAULT_ESTIMATED_GRAMS_PER_DISC}g/disco s/ peso)
+                  {DEFAULT_ESTIMATED_GRAMS_PER_DISC}g/CD no modo Desempacotar)
                 </span>
               </button>
             </div>
@@ -504,8 +513,12 @@ export const ConsolidationAdvisorModal: React.FC<
                       <div className="flex items-center justify-between text-[11px] text-slate-400">
                         <span>
                           Ocupação da faixa de peso (
-                          {sug.hasEstimatedWeights
-                            ? 'inclui pesos estimados ~110g/disco'
+                          {sug.totalSavedPackagingWeightKg > 0
+                            ? `pós-desempacotar ~${DEFAULT_ESTIMATED_GRAMS_PER_DISC}g/CD • descontou ${formatWeightKg(
+                                sug.totalSavedPackagingWeightKg
+                              )} de embalagens`
+                            : sug.hasEstimatedWeights
+                            ? `inclui pesos estimados ~${DEFAULT_ESTIMATED_GRAMS_PER_DISC}g/CD`
                             : '100% pesos reais'}
                           )
                         </span>
@@ -594,8 +607,15 @@ export const ConsolidationAdvisorModal: React.FC<
                       </div>
 
                       <div className="rounded-xl bg-slate-950/90 border border-slate-800 p-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-slate-400">
-                          Custo Final Médio / CD
+                        <div className="text-[10px] uppercase tracking-wider text-slate-400 flex items-center justify-between gap-1">
+                          <span>Custo Final Médio / CD</span>
+                          {sug.estimatedAvgFinalWithTaxMgPerCdBrl <= 80 && (
+                            <span className="rounded bg-emerald-500/20 border border-emerald-500/40 px-1.5 py-0.2 text-[9px] font-bold text-emerald-300">
+                              {sug.estimatedAvgFinalWithTaxMgPerCdBrl <= 70
+                                ? '🎯 Na Meta'
+                                : '✅ Ótimo'}
+                            </span>
+                          )}
                         </div>
                         <div className="text-xs sm:text-sm font-bold font-mono text-white mt-0.5">
                           {formatBrl(sug.estimatedAvgFinalPerCdBrl)}{' '}
@@ -605,11 +625,7 @@ export const ConsolidationAdvisorModal: React.FC<
                         </div>
                         <div className="text-[10px] font-mono text-rose-300/90">
                           c/ Est. MG:{' '}
-                          {formatBrl(
-                            (sug.estimatedTotalNoTaxBrl +
-                              sug.estimatedTaxMgBrl) /
-                              sug.totalCds
-                          )}
+                          {formatBrl(sug.estimatedAvgFinalWithTaxMgPerCdBrl)}
                         </div>
                       </div>
 
@@ -672,8 +688,14 @@ export const ConsolidationAdvisorModal: React.FC<
                               </span>
                               <span
                                 title={
-                                  pkg.isWeightEstimated
-                                    ? `Peso estimado automaticamente (${pkg.physicalDiscCount} disco(s) × ${DEFAULT_ESTIMATED_GRAMS_PER_DISC}g)`
+                                  pkg.savedPackagingWeightKg > 0
+                                    ? `Peso líquido estimado pós-desempacotar (${pkg.cdCount} CD(s) × ${DEFAULT_ESTIMATED_GRAMS_PER_DISC}g = ${formatWeightKg(
+                                        pkg.weightKg
+                                      )} | Peso bruto com embalagem do vendedor: ${formatWeightKg(
+                                        pkg.rawRegisteredWeightKg || pkg.weightKg
+                                      )})`
+                                    : pkg.isWeightEstimated
+                                    ? `Peso estimado automaticamente (${pkg.cdCount} CD(s) × ${DEFAULT_ESTIMATED_GRAMS_PER_DISC}g)`
                                     : 'Peso real cadastrado no pacote'
                                 }
                                 className={`rounded px-1.5 py-0.5 border ${
@@ -684,7 +706,13 @@ export const ConsolidationAdvisorModal: React.FC<
                               >
                                 {pkg.isWeightEstimated ? '~' : ''}
                                 {formatWeightKg(pkg.weightKg)}
-                                {pkg.isWeightEstimated ? ' est.' : ''}
+                                {pkg.savedPackagingWeightKg > 0
+                                  ? ` (s/ emb. ${formatWeightKg(
+                                      pkg.rawRegisteredWeightKg!
+                                    )})`
+                                  : pkg.isWeightEstimated
+                                  ? ' est.'
+                                  : ''}
                               </span>
                             </div>
                           </div>
@@ -711,7 +739,7 @@ export const ConsolidationAdvisorModal: React.FC<
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="text-amber-300 font-mono">~kg est.</span> = Peso
-              estimado ({DEFAULT_ESTIMATED_GRAMS_PER_DISC}g/disco)
+              líquido ({DEFAULT_ESTIMATED_GRAMS_PER_DISC}g/CD pós-desempacotar)
             </span>
           </div>
 

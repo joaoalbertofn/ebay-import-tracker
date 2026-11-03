@@ -11,7 +11,7 @@ import {
   calculateSelectedForwarderCdsValue,
 } from '@/lib/domain/consolidation';
 
-export type WeightTierKg = 0.5 | 1.0 | 1.5 | 2.0;
+export type WeightTierKg = 0.5 | 1.0 | 1.2 | 1.5 | 2.0;
 
 export const WEIGHT_TIER_OPTIONS: Array<{
   weightKg: WeightTierKg;
@@ -19,22 +19,23 @@ export const WEIGHT_TIER_OPTIONS: Array<{
   approxCdsLabel: string;
 }> = [
   { weightKg: 0.5, label: 'Até 0,5 kg', approxCdsLabel: '~4 CDs' },
-  { weightKg: 1.0, label: 'Até 1,0 kg', approxCdsLabel: '~8–9 CDs' },
+  { weightKg: 1.0, label: 'Até 1,0 kg', approxCdsLabel: '~8 CDs' },
+  { weightKg: 1.2, label: 'Até 1,2 kg', approxCdsLabel: '~9–10 CDs ⭐' },
   { weightKg: 1.5, label: 'Até 1,5 kg', approxCdsLabel: '~12–13 CDs' },
-  { weightKg: 2.0, label: 'Até 2,0 kg', approxCdsLabel: '~16–18 CDs' },
+  { weightKg: 2.0, label: 'Até 2,0 kg', approxCdsLabel: '~16–17 CDs' },
 ];
 
-export const DEFAULT_ESTIMATED_GRAMS_PER_DISC = 110;
+export const DEFAULT_ESTIMATED_GRAMS_PER_DISC = 120;
 
 const DEFAULT_INTL_SHIPPING_BY_CURRENCY: Record<
   CurrencyCode,
   Record<WeightTierKg, number>
 > = {
-  GBP: { 0.5: 29.5, 1.0: 37.0, 1.5: 44.0, 2.0: 51.0 },
-  USD: { 0.5: 34.0, 1.0: 44.0, 1.5: 54.0, 2.0: 64.0 },
-  EUR: { 0.5: 32.0, 1.0: 40.0, 1.5: 48.0, 2.0: 56.0 },
-  JPY: { 0.5: 4200, 1.0: 5600, 1.5: 7000, 2.0: 8400 },
-  BRL: { 0.5: 180.0, 1.0: 240.0, 1.5: 300.0, 2.0: 360.0 },
+  GBP: { 0.5: 29.5, 1.0: 37.0, 1.2: 39.0, 1.5: 44.0, 2.0: 51.0 },
+  USD: { 0.5: 34.0, 1.0: 44.0, 1.2: 48.0, 1.5: 54.0, 2.0: 64.0 },
+  EUR: { 0.5: 32.0, 1.0: 40.0, 1.2: 43.0, 1.5: 48.0, 2.0: 56.0 },
+  JPY: { 0.5: 4200, 1.0: 5600, 1.2: 6100, 1.5: 7000, 2.0: 8400 },
+  BRL: { 0.5: 180.0, 1.0: 240.0, 1.2: 265.0, 1.5: 300.0, 2.0: 360.0 },
 };
 
 export interface EvaluatedForwarderPackage {
@@ -45,6 +46,8 @@ export interface EvaluatedForwarderPackage {
   cdCount: number;
   physicalDiscCount: number;
   weightKg: number;
+  rawRegisteredWeightKg?: number;
+  savedPackagingWeightKg: number;
   isWeightEstimated: boolean;
   cdsPerKgDensity: number;
 }
@@ -60,6 +63,7 @@ export interface ConsolidationSuggestion {
   totalCds: number;
   totalPhysicalDiscs: number;
   totalWeightKg: number;
+  totalSavedPackagingWeightKg: number;
   hasEstimatedWeights: boolean;
   weightUtilizationPercent: number;
   remainingWeightKg: number;
@@ -83,6 +87,7 @@ export interface ConsolidationSuggestion {
   estimatedTotalNoTaxBrl: number;
   estimatedAvgFinalPerCdBrl: number;
   estimatedTaxMgBrl: number;
+  estimatedAvgFinalWithTaxMgPerCdBrl: number;
   estimatedSavingsVsIndividualBrl: number;
 }
 
@@ -129,7 +134,9 @@ export function getEstimatedIntlShippingForWeight(
       ? 0.5
       : targetWeightKg <= 1.05
       ? 1.0
-      : targetWeightKg <= 1.55
+      : targetWeightKg <= 1.35
+      ? 1.2
+      : targetWeightKg <= 1.65
       ? 1.5
       : 2.0;
 
@@ -139,7 +146,7 @@ export function getEstimatedIntlShippingForWeight(
       s.currency === currency &&
       Number(s.internationalShipping) > 0 &&
       Number(s.weightKg) > 0 &&
-      Math.abs(Number(s.weightKg) - closestTier) <= 0.25
+      Math.abs(Number(s.weightKg) - closestTier) <= 0.2
   );
 
   if (matchingHistory.length > 0) {
@@ -158,11 +165,15 @@ export function getEstimatedIntlShippingForWeight(
 }
 
 /**
- * Resolve o peso (real ou estimado por quantidade de discos físicos) de um pacote elegível.
+ * Resolve o peso de um pacote elegível:
+ * - No modo `unpack_and_repack` (Desempacotar): desconta o excesso da embalagem externa do vendedor,
+ *   aplicando a média de `estimatedGramsPerDisc` (padrão 120g/CD) quando o peso bruto cadastrado é maior.
+ * - No modo `group_only` (Só Agrupar): mantém o peso bruto cadastrado do pacote original.
  */
 export function evaluateForwarderPackage(
   option: ForwarderPackageOption,
-  estimatedGramsPerDisc: number = DEFAULT_ESTIMATED_GRAMS_PER_DISC
+  estimatedGramsPerDisc: number = DEFAULT_ESTIMATED_GRAMS_PER_DISC,
+  mode: Exclude<ConsolidationMode, 'direct'> = 'unpack_and_repack'
 ): EvaluatedForwarderPackage {
   const cdCount = option.items.length;
   const physicalDiscCount = option.items.reduce(
@@ -172,15 +183,32 @@ export function evaluateForwarderPackage(
 
   const rawWeight = Number(option.shipment.weightKg);
   const hasRealWeight = Number.isFinite(rawWeight) && rawWeight > 0;
-
-  const weightKg = hasRealWeight
+  const rawRegisteredWeightKg = hasRealWeight
     ? Number(rawWeight.toFixed(2))
-    : Number(
-        Math.max(
-          0.1,
-          (physicalDiscCount * estimatedGramsPerDisc) / 1000
-        ).toFixed(2)
-      );
+    : undefined;
+
+  const unpackedEstimateKg = Number(
+    Math.max(0.1, (cdCount * estimatedGramsPerDisc) / 1000).toFixed(2)
+  );
+
+  let weightKg: number;
+  let savedPackagingWeightKg = 0;
+  let isWeightEstimated = !hasRealWeight;
+
+  if (!hasRealWeight) {
+    weightKg = unpackedEstimateKg;
+  } else if (
+    mode === 'unpack_and_repack' &&
+    rawRegisteredWeightKg! > unpackedEstimateKg
+  ) {
+    weightKg = unpackedEstimateKg;
+    savedPackagingWeightKg = Number(
+      (rawRegisteredWeightKg! - unpackedEstimateKg).toFixed(2)
+    );
+    isWeightEstimated = true;
+  } else {
+    weightKg = rawRegisteredWeightKg!;
+  }
 
   const cdsPerKgDensity = weightKg > 0 ? cdCount / weightKg : cdCount;
 
@@ -192,7 +220,9 @@ export function evaluateForwarderPackage(
     cdCount,
     physicalDiscCount,
     weightKg,
-    isWeightEstimated: !hasRealWeight,
+    rawRegisteredWeightKg,
+    savedPackagingWeightKg,
+    isWeightEstimated,
     cdsPerKgDensity,
   };
 }
@@ -200,13 +230,13 @@ export function evaluateForwarderPackage(
 /**
  * Gera recomendações inteligentes de pacotes para consolidar, otimizando:
  * 1. Menor rateio de custos indiretos por CD (diluição da taxa por pacote + frete internacional pelo nº de CDs)
- * 2. Aproveitamento eficiente da faixa de peso alvo (ex: até 1,0 kg sem estourar)
+ * 2. Aproveitamento eficiente da faixa de peso alvo (ex: até 1,2 kg para ~10 CDs sem estourar)
  */
 export function generateConsolidationAdvisorReport(
   forwarderPackages: ForwarderPackageOption[],
   options: ConsolidationAdvisorOptions = {}
 ): ConsolidationAdvisorReport {
-  const targetMaxWeightKg = options.targetMaxWeightKg ?? 1.0;
+  const targetMaxWeightKg = options.targetMaxWeightKg ?? 1.2;
   const includePurchasedInTransit = options.includePurchasedInTransit ?? false;
   const mode = options.mode ?? 'unpack_and_repack';
   const currency = options.currency ?? 'GBP';
@@ -225,7 +255,7 @@ export function generateConsolidationAdvisorReport(
 
   const allEvaluated = forwarderPackages
     .filter((fp) => fp.items.length > 0)
-    .map((fp) => evaluateForwarderPackage(fp, estimatedGramsPerDisc));
+    .map((fp) => evaluateForwarderPackage(fp, estimatedGramsPerDisc, mode));
 
   const inForwarderPackages = allEvaluated.filter(
     (p) => p.status === 'no_redirecionador'
@@ -316,6 +346,11 @@ export function generateConsolidationAdvisorReport(
     const totalWeightKg = Number(
       subset.reduce((acc, p) => acc + p.weightKg, 0).toFixed(2)
     );
+    const totalSavedPackagingWeightKg = Number(
+      subset
+        .reduce((acc, p) => acc + (p.savedPackagingWeightKg || 0), 0)
+        .toFixed(2)
+    );
     const hasEstimatedWeights = subset.some((p) => p.isWeightEstimated);
     const exceedsTargetWeight = totalWeightKg > targetMaxWeightKg + 0.0001;
     const weightUtilizationPercent = Math.min(
@@ -400,6 +435,9 @@ export function generateConsolidationAdvisorReport(
       (estimatedTotalNoTaxBrl / totalCds).toFixed(2)
     );
     const estimatedTaxMgBrl = Number((cdsValueBrl * MG_TAX_FACTOR).toFixed(2));
+    const estimatedAvgFinalWithTaxMgPerCdBrl = Number(
+      ((estimatedTotalNoTaxBrl + estimatedTaxMgBrl) / totalCds).toFixed(2)
+    );
 
     // Economia vs enviar cada pacote separadamente sem consolidar
     const separateIntlShippingTotalOriginal =
@@ -422,6 +460,7 @@ export function generateConsolidationAdvisorReport(
       totalCds,
       totalPhysicalDiscs,
       totalWeightKg,
+      totalSavedPackagingWeightKg,
       hasEstimatedWeights,
       weightUtilizationPercent,
       remainingWeightKg,
@@ -443,6 +482,7 @@ export function generateConsolidationAdvisorReport(
       estimatedTotalNoTaxBrl,
       estimatedAvgFinalPerCdBrl,
       estimatedTaxMgBrl,
+      estimatedAvgFinalWithTaxMgPerCdBrl,
       estimatedSavingsVsIndividualBrl,
     };
   };
