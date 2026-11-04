@@ -55,7 +55,7 @@ export const ConsolidationAdvisorModal: React.FC<
   onSelectPackagesInSidebar,
   onConsolidateSuggestion,
 }) => {
-  const [targetWeightKg, setTargetWeightKg] = useState<WeightTierKg>(1.2);
+  const [targetWeightKg, setTargetWeightKg] = useState<WeightTierKg>(1.3);
   // Se houver menos de 2 pacotes no redirecionador, já inicia com "Incluir Comprados" ativo para ser útil imediatamente
   const initialInForwarderCount = useMemo(
     () =>

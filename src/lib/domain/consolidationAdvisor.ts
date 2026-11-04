@@ -11,7 +11,7 @@ import {
   calculateSelectedForwarderCdsValue,
 } from '@/lib/domain/consolidation';
 
-export type WeightTierKg = 0.5 | 1.0 | 1.2 | 1.5 | 2.0;
+export type WeightTierKg = 0.5 | 1.0 | 1.3 | 1.5 | 2.0;
 
 export const WEIGHT_TIER_OPTIONS: Array<{
   weightKg: WeightTierKg;
@@ -19,23 +19,23 @@ export const WEIGHT_TIER_OPTIONS: Array<{
   approxCdsLabel: string;
 }> = [
   { weightKg: 0.5, label: 'Até 0,5 kg', approxCdsLabel: '~4 CDs' },
-  { weightKg: 1.0, label: 'Até 1,0 kg', approxCdsLabel: '~8 CDs' },
-  { weightKg: 1.2, label: 'Até 1,2 kg', approxCdsLabel: '~9–10 CDs ⭐' },
-  { weightKg: 1.5, label: 'Até 1,5 kg', approxCdsLabel: '~12–13 CDs' },
-  { weightKg: 2.0, label: 'Até 2,0 kg', approxCdsLabel: '~16–17 CDs' },
+  { weightKg: 1.0, label: 'Até 1,0 kg', approxCdsLabel: '~7–8 CDs' },
+  { weightKg: 1.3, label: 'Até 1,3 kg', approxCdsLabel: '~9–10 CDs ⭐' },
+  { weightKg: 1.5, label: 'Até 1,5 kg', approxCdsLabel: '~11–12 CDs' },
+  { weightKg: 2.0, label: 'Até 2,0 kg', approxCdsLabel: '~15 CDs' },
 ];
 
-export const DEFAULT_ESTIMATED_GRAMS_PER_DISC = 120;
+export const DEFAULT_ESTIMATED_GRAMS_PER_DISC = 130;
 
 const DEFAULT_INTL_SHIPPING_BY_CURRENCY: Record<
   CurrencyCode,
   Record<WeightTierKg, number>
 > = {
-  GBP: { 0.5: 29.5, 1.0: 37.0, 1.2: 39.0, 1.5: 44.0, 2.0: 51.0 },
-  USD: { 0.5: 34.0, 1.0: 44.0, 1.2: 48.0, 1.5: 54.0, 2.0: 64.0 },
-  EUR: { 0.5: 32.0, 1.0: 40.0, 1.2: 43.0, 1.5: 48.0, 2.0: 56.0 },
-  JPY: { 0.5: 4200, 1.0: 5600, 1.2: 6100, 1.5: 7000, 2.0: 8400 },
-  BRL: { 0.5: 180.0, 1.0: 240.0, 1.2: 265.0, 1.5: 300.0, 2.0: 360.0 },
+  GBP: { 0.5: 29.5, 1.0: 37.0, 1.3: 41.0, 1.5: 44.0, 2.0: 51.0 },
+  USD: { 0.5: 34.0, 1.0: 44.0, 1.3: 50.0, 1.5: 54.0, 2.0: 64.0 },
+  EUR: { 0.5: 32.0, 1.0: 40.0, 1.3: 45.0, 1.5: 48.0, 2.0: 56.0 },
+  JPY: { 0.5: 4200, 1.0: 5600, 1.3: 6400, 1.5: 7000, 2.0: 8400 },
+  BRL: { 0.5: 180.0, 1.0: 240.0, 1.3: 280.0, 1.5: 300.0, 2.0: 360.0 },
 };
 
 export interface EvaluatedForwarderPackage {
@@ -135,7 +135,7 @@ export function getEstimatedIntlShippingForWeight(
       : targetWeightKg <= 1.05
       ? 1.0
       : targetWeightKg <= 1.35
-      ? 1.2
+      ? 1.3
       : targetWeightKg <= 1.65
       ? 1.5
       : 2.0;
@@ -236,7 +236,7 @@ export function generateConsolidationAdvisorReport(
   forwarderPackages: ForwarderPackageOption[],
   options: ConsolidationAdvisorOptions = {}
 ): ConsolidationAdvisorReport {
-  const targetMaxWeightKg = options.targetMaxWeightKg ?? 1.2;
+  const targetMaxWeightKg = options.targetMaxWeightKg ?? 1.3;
   const includePurchasedInTransit = options.includePurchasedInTransit ?? false;
   const mode = options.mode ?? 'unpack_and_repack';
   const currency = options.currency ?? 'GBP';
