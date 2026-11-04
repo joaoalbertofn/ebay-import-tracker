@@ -362,7 +362,10 @@ export function CDModal({
       setLocalTrackingCode(data.localTrackingCode.toUpperCase());
     }
 
-    if (data.items && data.items.length === 1) {
+    if (
+      data.items &&
+      (data.items.length === 1 || (data.items.length > 1 && Boolean(editingItem)))
+    ) {
       const item = data.items[0];
       if (!editingItem) setIsBundle(false);
       setArtist(item.artist || '');

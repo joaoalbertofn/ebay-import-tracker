@@ -10,6 +10,7 @@ import {
   parseEbayListingTitle,
   parseEbayOrderCopiedText,
   parsePriceAndCurrency,
+  stripEbayListingNoiseSections,
 } from '@/lib/ebayImport';
 import { CurrencyCode } from '@/types/tracker';
 
@@ -140,7 +141,7 @@ function extractStructuredListingFromDescription(descText: string): {
 }
 
 /**
- * Fallback via Jina Reader / Microlink quando o IP da Vercel recebe bloqueio anti-bot do www.ebay.com
+ * Fallback via Social Bot OpenGraph / Jina Reader / Microlink quando o IP recebe bloqueio anti-bot do www.ebay.com
  */
 async function fetchListingViaReaderFallback(
   url: string,
@@ -155,9 +156,93 @@ async function fetchListingViaReaderFallback(
   coverUrl?: string;
 }> {
   const candidateUrls = itemId
-    ? [`https://www.ebay.co.uk/itm/${itemId}`, url]
+    ? Array.from(new Set([`https://www.ebay.co.uk/itm/${itemId}`, url]))
     : [url];
 
+  // 1. Tenta buscar OpenGraph tags usando User-Agent de crawler de link preview (WhatsApp / Facebook)
+  for (const targetUrl of candidateUrls) {
+    for (const botUa of [
+      'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+      'WhatsApp/2.23.20.0',
+      'Twitterbot/1.0',
+    ]) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 4500);
+        const res = await fetch(targetUrl, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': botUa,
+            Accept: 'text/html,application/xhtml+xml,*/*',
+          },
+          redirect: 'follow',
+        });
+        clearTimeout(timeout);
+        if (!res.ok) continue;
+        const html = await res.text();
+        if (!html || /pardon\s+our\s+interruption/i.test(html)) continue;
+
+        const ogTitleMatch =
+          html.match(
+            /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i
+          ) ||
+          html.match(
+            /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i
+          ) ||
+          html.match(/<title[^>]*>([^<]+)<\/title>/i);
+
+        const candidateTitle = ogTitleMatch
+          ? ogTitleMatch[1]
+              .replace(/\s*\|\s*eBay.*$/i, '')
+              .replace(/for sale online\s*$/i, '')
+              .trim()
+          : '';
+
+        if (candidateTitle && !isAntiBotTitle(candidateTitle)) {
+          const ogImgMatch =
+            html.match(
+              /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
+            ) ||
+            html.match(
+              /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
+            );
+          const ogDescMatch =
+            html.match(
+              /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i
+            ) ||
+            html.match(
+              /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i
+            );
+          const plain = stripEbayListingNoiseSections(
+            htmlToPlainTextWithLines(html)
+          );
+          const parsedFromBot = parseEbayOrderCopiedText(plain);
+          const pInfo = parsePriceAndCurrency(
+            `${candidateTitle} ${ogDescMatch ? ogDescMatch[1] : ''}`
+          );
+
+          return {
+            rawTitle: candidateTitle,
+            price: parsedFromBot.bundleTotalValue ?? pInfo.amount,
+            currency:
+              parsedFromBot.currency ??
+              pInfo.currency ??
+              detectCurrencyFromDomain(targetUrl),
+            shippingPrice: parsedFromBot.internalShipping,
+            coverUrl:
+              ogImgMatch && ogImgMatch[1].startsWith('http')
+                ? ogImgMatch[1]
+                : undefined,
+            descriptionText: plain,
+          };
+        }
+      } catch {
+        // tenta próximo User-Agent
+      }
+    }
+  }
+
+  // 2. Fallback via Jina Reader
   for (const targetUrl of candidateUrls) {
     try {
       const controller = new AbortController();
@@ -167,7 +252,6 @@ async function fetchListingViaReaderFallback(
         signal: controller.signal,
         headers: {
           Accept: 'text/plain',
-          'X-Return-Format': 'text',
         },
       });
       clearTimeout(timeout);
@@ -188,48 +272,59 @@ async function fetchListingViaReaderFallback(
         }
       }
 
-      const parsedFromReader = parseEbayOrderCopiedText(text);
-      return {
-        rawTitle,
-        price: parsedFromReader.bundleTotalValue,
-        currency: parsedFromReader.currency,
-        shippingPrice: parsedFromReader.internalShipping,
-        descriptionText: text,
-      };
+      const cleanedText = stripEbayListingNoiseSections(text);
+      const parsedFromReader = parseEbayOrderCopiedText(cleanedText);
+      if (!rawTitle && parsedFromReader.items.length > 0) {
+        rawTitle = parsedFromReader.items[0].rawTitle;
+      }
+
+      if (rawTitle || parsedFromReader.items.length > 0) {
+        return {
+          rawTitle,
+          price:
+            parsedFromReader.bundleTotalValue ??
+            parsedFromReader.items[0]?.unitPrice,
+          currency: parsedFromReader.currency,
+          shippingPrice: parsedFromReader.internalShipping,
+          descriptionText: cleanedText,
+        };
+      }
     } catch {
       // continua
     }
   }
 
-  // Fallback extra: Microlink OpenGraph metadata
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const mlRes = await fetch(
-      `https://api.microlink.io/?url=${encodeURIComponent(url)}`,
-      { signal: controller.signal }
-    );
-    clearTimeout(timeout);
-    if (mlRes.ok) {
-      const mlJson = await mlRes.json();
-      const t = String(mlJson?.data?.title || '')
-        .replace(/\s*\|\s*eBay.*$/i, '')
-        .trim();
-      const desc = String(mlJson?.data?.description || '');
-      const img = mlJson?.data?.image?.url;
-      if (t && !isAntiBotTitle(t)) {
-        const pInfo = parsePriceAndCurrency(`${t} ${desc}`);
-        return {
-          rawTitle: t,
-          price: pInfo.amount,
-          currency: pInfo.currency,
-          coverUrl: typeof img === 'string' ? img : undefined,
-          descriptionText: desc,
-        };
+  // 3. Fallback extra: Microlink OpenGraph metadata
+  for (const targetUrl of candidateUrls) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const mlRes = await fetch(
+        `https://api.microlink.io/?url=${encodeURIComponent(targetUrl)}`,
+        { signal: controller.signal }
+      );
+      clearTimeout(timeout);
+      if (mlRes.ok) {
+        const mlJson = await mlRes.json();
+        const t = String(mlJson?.data?.title || '')
+          .replace(/\s*\|\s*eBay.*$/i, '')
+          .trim();
+        const desc = String(mlJson?.data?.description || '');
+        const img = mlJson?.data?.image?.url;
+        if (t && !isAntiBotTitle(t)) {
+          const pInfo = parsePriceAndCurrency(`${t} ${desc}`);
+          return {
+            rawTitle: t,
+            price: pInfo.amount,
+            currency: pInfo.currency,
+            coverUrl: typeof img === 'string' ? img : undefined,
+            descriptionText: desc,
+          };
+        }
       }
+    } catch {
+      // ignora
     }
-  } catch {
-    // ignora
   }
 
   return {};
@@ -280,7 +375,9 @@ async function fetchPublicEbayListingItems(url: string): Promise<{
 
     if (res.ok) {
       const html = await res.text();
-      pagePlainText = htmlToPlainTextWithLines(html);
+      pagePlainText = stripEbayListingNoiseSections(
+        htmlToPlainTextWithLines(html)
+      );
 
       // 1. JSON-LD
       const ldMatches = html.match(
@@ -616,15 +713,14 @@ export async function POST(req: NextRequest) {
     let fetchedBundleTotal: number | undefined;
 
     // Se o texto colado já continha os álbuns detalhados (e não um título genérico de bundle que precisa buscar a descrição),
-    // evitamos sobrescrever quando já temos os itens completos extraídos do texto do pedido
+    // evitamos sobrescrever quando já temos os itens completos extraídos do texto do pedido ou da página copiada
     const textHasDetailedAlbums =
       textParsed.items.length >= 1 &&
       textParsed.items.every(
         (i) =>
           !i.albumTitle.startsWith('CD #') &&
           !i.albumTitle.startsWith('Vinil #')
-      ) &&
-      extractEbayListingUrls(input).length === 0;
+      );
 
     if (!textHasDetailedAlbums && listingUrls.length > 0) {
       const results = await Promise.all(
@@ -644,11 +740,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Garante que se o item veio do texto do pedido com Item number, ele receba o ebayListingUrl correspondente
-    if (textParsed.items.length > 0 && itemIdsInText.length > 0) {
+    // Garante que se o item veio do texto do pedido/anúncio com URL ou Item number, ele receba o ebayListingUrl correspondente
+    if (textParsed.items.length > 0) {
       textParsed.items.forEach((item, idx) => {
-        if (!item.ebayListingUrl && itemIdsInText[idx]) {
-          item.ebayListingUrl = `${defaultItemDomain}/${itemIdsInText[idx]}`;
+        if (!item.ebayListingUrl) {
+          if (listingUrls[idx]) {
+            item.ebayListingUrl = listingUrls[idx];
+          } else if (itemIdsInText[idx]) {
+            item.ebayListingUrl = `${defaultItemDomain}/${itemIdsInText[idx]}`;
+          } else if (idx === 0 && listingUrls[0]) {
+            item.ebayListingUrl = listingUrls[0];
+          } else if (idx === 0 && itemIdsInText[0]) {
+            item.ebayListingUrl = `${defaultItemDomain}/${itemIdsInText[0]}`;
+          }
         }
       });
     }

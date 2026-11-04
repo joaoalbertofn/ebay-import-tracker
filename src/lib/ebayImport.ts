@@ -30,6 +30,56 @@ export interface EbayImportResult {
 const ORDER_ID_REGEX = /\b(\d{2}-\d{5}-\d{5})\b/;
 
 /**
+ * Remove links Markdown mantendo apenas o texto visível: "[ Skip ](https://...)" -> "Skip"
+ */
+export function stripMarkdownLinksKeepText(input: string): string {
+  if (!input) return '';
+  return input.replace(/\[([^\]]*)\]\(\s*https?:\/\/[^)]+\)/g, '$1');
+}
+
+/**
+ * Remove seções de ruído de páginas de anúncio do eBay copiadas com Ctrl+A / Cmd+A
+ * (Similar Items, Inspired by your recent views, About this seller, Seller feedback, Top Sellers, rodapé)
+ * preservando o cabeçalho do produto, preço, frete, Item specifics e Item description from the seller.
+ */
+export function stripEbayListingNoiseSections(rawText: string): string {
+  if (!rawText) return '';
+
+  const lines = rawText.split(/\r?\n/);
+  const keptLines: string[] = [];
+  let inNoiseSection = false;
+
+  const noiseStartRegex =
+    /^(?:similar\s+items|similar\s+sponsored\s+items|sponsored\s+items|inspired\s+by\s+your\s+recent\s+views|people\s+who\s+viewed\s+this\s+item\s+also\s+viewed|customers\s+ultimately\s+bought|related\s+sponsored\s+items|more\s+to\s+explore|related\s+searches|explore\s+related\s+items|about\s+this\s+seller|seller\s+feedback\b|product\s+ratings\s+and\s+reviews|ratings\s+and\s+reviews|shop\s+top\s+sellers\s+and\s+highly\s+rated\s+products|back\s+to\s+my\s+ebay|return\s+to\s+top|about\s+ebay\b)/i;
+
+  const listingResumeRegex =
+    /^(?:about\s+this\s+item|seller\s+assumes\s+all\s+responsibility|ebay\s+item\s+number\b|item\s+specifics\b|item\s+description\s+from\s+the\s+seller|order\s+info\b|item\s+info\b|payment\s+info\b|delivery\s+info\b|tracking\s+details\b)/i;
+
+  for (const rawLine of lines) {
+    const plainLine = stripMarkdownLinksKeepText(rawLine)
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!plainLine) {
+      if (!inNoiseSection) keptLines.push(rawLine);
+      continue;
+    }
+
+    if (listingResumeRegex.test(plainLine)) {
+      inNoiseSection = false;
+    } else if (noiseStartRegex.test(plainLine)) {
+      inNoiseSection = true;
+    }
+
+    if (!inNoiseSection) {
+      keptLines.push(rawLine);
+    }
+  }
+
+  return keptLines.join('\n');
+}
+
+/**
  * Extrai o Order ID (ex: 04-15363-94135) e monta a URL limpa do pedido no eBay
  */
 export function extractEbayOrderInfo(input: string): {
@@ -40,7 +90,7 @@ export function extractEbayOrderInfo(input: string): {
   const trimmed = input.trim();
 
   const urlMatch = trimmed.match(
-    /https?:\/\/(?:order|www)\.ebay\.[a-z.]+\/ord\/[^\s"<>]+/i
+    /https?:\/\/(?:order|www)\.ebay\.[a-z.]+\/ord\/[^\s"<>)]+/i
   );
   if (urlMatch) {
     const cleanUrl = urlMatch[0].replace(/#\/?$/, '');
@@ -82,14 +132,16 @@ export function extractEbayOrderInfo(input: string): {
 export function extractEbayListingUrls(input: string): string[] {
   if (!input) return [];
 
+  const cleanedInput = stripEbayListingNoiseSections(input);
+
   // Adiciona https:// caso o usuário tenha colado direto da barra de endereços sem https:// (ex: "ebay.com/itm/840062942035")
-  const normalizedInput = input.replace(
-    /(^|\s)((?:www\.|m\.)?ebay\.[a-z.]+\/itm\/[^\s"'<>]+)/gi,
+  const normalizedInput = cleanedInput.replace(
+    /(^|[\s(])((?:www\.|m\.)?ebay\.[a-z.]+\/itm\/[^\s"'<>)]+)/gi,
     '$1https://$2'
   );
 
   const matches = normalizedInput.match(
-    /https?:\/\/(?:www\.|m\.)?(?:ebay\.[a-z.]+|ebay\.us)\/[^\s"'<>]+/gi
+    /https?:\/\/(?:www\.|m\.)?(?:ebay\.[a-z.]+\/itm\/[^\s"'<>)]+|ebay\.us\/[^\s"'<>)]+)/gi
   );
   if (!matches) return [];
 
@@ -120,15 +172,18 @@ export function extractEbayListingUrls(input: string): string[] {
  */
 export function extractEbayItemIds(input: string): string[] {
   if (!input) return [];
+  const cleanedInput = stripEbayListingNoiseSections(input);
   const ids = new Set<string>();
 
-  const urlMatches = input.matchAll(/\/itm\/(?:[^/?#\s]+\/)?(\d{10,14})\b/gi);
+  const urlMatches = cleanedInput.matchAll(
+    /\/itm\/(?:[^/?#\s]+\/)?(\d{10,14})\b/gi
+  );
   for (const m of urlMatches) {
     ids.add(m[1]);
   }
 
-  const labelMatches = input.matchAll(
-    /(?:item\s*(?:id|number|no\.?|#)|n[úu]mero\s*do\s*item)\s*[:#-]?\s*(\d{10,14})\b/gi
+  const labelMatches = cleanedInput.matchAll(
+    /(?:item\s*(?:id|number|no\.?|#)|n[úu]mero\s*do\s*item|itemId=)\s*[:#-]?\s*(\d{10,14})\b/gi
   );
   for (const m of labelMatches) {
     ids.add(m[1]);
@@ -265,7 +320,10 @@ function normalizeCase(str: string): string {
     return trimmed.toUpperCase();
   }
   const letters = trimmed.replace(/[^a-zA-Z]/g, '');
-  if (letters.length > 3 && trimmed === trimmed.toUpperCase()) {
+  if (
+    letters.length >= 2 &&
+    (trimmed === trimmed.toUpperCase() || trimmed === trimmed.toLowerCase())
+  ) {
     return trimmed
       .toLowerCase()
       .replace(/\b\w/g, (c) => c.toUpperCase());
@@ -373,7 +431,7 @@ export function parseEbayListingTitle(
     )
     // Remove termos de mídia comuns no final
     .replace(
-      /\b(?:standard\s*jewel\s*case|jewel\s*case|digipak|digipack|sony\s*bmg|rca\s*rock|rca|sire\s*records|bmg)\b/gi,
+      /\b(?:standard\s*jewel\s*case|jewel\s*case|digipak|digipack|digisleeve|cardboard\s*(?:fold|sleeve)(?:\s*edition)?|card\s*sleeve|paper\s*sleeve|slipcase|mini\s*lp|sony\s*bmg|rca\s*rock|rca|sire\s*records|bmg)\b/gi,
       ' '
     )
     // Remove "(with bonus dvd)" ou similares após já termos detectado discCount
@@ -393,13 +451,14 @@ export function parseEbayListingTitle(
       ' '
     )
     .replace(
-      /\b(?:audio\s*cd|music\s*cd|compact\s*disc|cd\s*album|album\s*cd|rock\s*cd|cd\/dvd|[2-9]\s*x?\s*cd\s*set|double\s*cd|triple\s*cd|deluxe\s*edition|special\s*edition|limited\s*edition|expanded\s*edition|remastered|digipak|digipack|jewel\s*case|brand\s*new|new\s*&\s*sealed|factory\s*sealed|sealed|very\s*good\s*condition|good\s*condition|like\s*new|near\s*mint|mint\s*condition|vg\+|vv|nm|fast\s*(?:&|and)?\s*free\s*(?:post|shipping|p&p|delivery)|free\s*(?:uk\s*)?(?:tracked\s*)?(?:postage|post|shipping|p&p|delivery)|uk\s*seller|official\s*release|import|obi\s*strip|w\/\s*obi)\b/gi,
+      /\b(?:audio\s*cd|music\s*cd|compact\s*disc|cd\s*album|album\s*cd|rock\s*cd|cd\/dvd|[2-9]\s*x?\s*cd\s*set|double\s*cd|triple\s*cd|deluxe\s*edition|special\s*edition|limited\s*edition|expanded\s*edition|collector'?s\s*edition|anniversary\s*edition|standard\s*edition|remastered|digipak|digipack|jewel\s*case|brand\s*new|new\s*&\s*sealed|factory\s*sealed|sealed|very\s*good\s*condition|good\s*condition|like\s*new|near\s*mint|mint\s*condition|vg\+|vv|nm|fast\s*(?:&|and)?\s*free\s*(?:post|shipping|p&p|delivery)|free\s*(?:uk\s*)?(?:tracked\s*)?(?:postage|post|shipping|p&p|delivery)|uk\s*seller|official\s*release|import|obi\s*strip|w\/\s*obi)\b/gi,
       ' '
     )
     .replace(/(?:^|\s+)[-:•|]?\s*\bcds?\b\s*[-:•|]?(?:\s+|$)/gi, ' ')
     .replace(/(?:\s+)[-:•|]?\s*\blps?\b\s*[-:•|]?(?:\s+|$)/gi, ' ')
     .replace(/\b(19[6-9]\d|20[0-2]\d)\b\s*$/g, ' ')
     .replace(/\(\s*\)|\[\s*\]/g, ' ')
+    .replace(/(?:\s*[-–—:|•]\s*){2,}/g, ' - ')
     .replace(/\s{2,}/g, ' ')
     .replace(/^[\s\-–—:|•,/.]+|[\s\-–—:|•,/.]+$/g, '')
     .trim();
@@ -459,8 +518,12 @@ export function parseEbayListingTitle(
 
   artist = stripEbayArtifacts(artist);
   albumTitle = stripEbayArtifacts(albumTitle)
-    // Remove palavras soltas residuais de gênero ou mídias no final
-    .replace(/\b(?:cd\s*album|album|rock|metal)\b\s*$/gi, '')
+    // Remove palavras soltas residuais de gênero ou mídias no final (preservando títulos como "Love Metal", "Heavy Metal")
+    .replace(/\b(?:cd\s*album|album|rock\s*\/\s*metal|pop\s*\/\s*rock)\b\s*$/gi, '')
+    .replace(
+      /(?<!\b(?:love|heavy|black|death|doom|nu|power|thrash|speed|gothic|symphonic|full)\s+)\b(?:rock|metal)\b\s*$/gi,
+      ''
+    )
     .replace(/\(\s*\)|\[\s*\]/g, ' ')
     .replace(/^[\s\-–—:|•,.]+|[\s\-–—:|•,.]+$/g, '')
     .trim();
@@ -558,9 +621,9 @@ export function parsePriceAndCurrency(text: string): {
 } {
   if (!text) return {};
 
-  // Ignora valores aproximados secundários do eBay como "Approximately US $24.02"
+  // Ignora valores aproximados secundários do eBay como "Approximately US $24.02" ou "(approx US $1.22)"
   const cleanedText = text.replace(
-    /approximately\s*(?:£|US\s*\$|\$|€|¥|R\$|\b(?:GBP|USD|EUR|JPY|BRL)\b)\s*\d+(?:[.,]\d{1,2})?/gi,
+    /\(?\b(?:approximately|approx\.?)\s*(?:£|US\s*\$|\$|€|¥|R\$|\b(?:GBP|USD|EUR|JPY|BRL)\b)\s*\d+(?:[.,]\d{1,2})?\)?/gi,
     ''
   );
 
@@ -569,8 +632,6 @@ export function parsePriceAndCurrency(text: string): {
     currency = 'GBP';
   else if (/€|\bEUR\b/i.test(cleanedText)) currency = 'EUR';
   else if (/¥|\bJPY\b/i.test(cleanedText)) currency = 'JPY';
-  else if (/R\$|\bBRL\b/i.test(cleanedText)) currency = 'BRL';
-  else if (/\$|\bUSD\b/i.test(cleanedText)) currency = 'USD';
   else if (/R\$|\bBRL\b/i.test(cleanedText)) currency = 'BRL';
   else if (/\$|\bUSD\b/i.test(cleanedText)) currency = 'USD';
 
@@ -623,8 +684,10 @@ export function isValidTrackingCodeCandidate(candidate: string): boolean {
  */
 export function parseEbayOrderCopiedText(rawText: string): EbayImportResult {
   const { ebayOrderId, ebayOrderUrl } = extractEbayOrderInfo(rawText);
+  const cleanedRawText = stripEbayListingNoiseSections(rawText);
+  const plainSectionText = stripMarkdownLinksKeepText(cleanedRawText);
 
-  const lines = rawText
+  const lines = plainSectionText
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
@@ -633,46 +696,72 @@ export function parseEbayOrderCopiedText(rawText: string): EbayImportResult {
   let internalShipping: number | undefined;
   let localTrackingCode: string | undefined;
   let specificArtist = '';
+  let specificReleaseTitle = '';
 
-  // Detecta moeda inicial com base no texto geral
-  if (/£|\bGBP\b|\bRoyal\s*Mail\b|\bUK\s*Tracked\b|\bFree\s*UK\b/i.test(rawText)) {
+  // Detecta moeda inicial com base no texto limpo (sem carrosséis de anúncios em outras moedas)
+  if (
+    /£|\bGBP\b|\bRoyal\s*Mail\b|\bUK\s*Tracked\b|\bFree\s*UK\b|\bUnited\s*Kingdom\b/i.test(
+      plainSectionText
+    )
+  ) {
     detectedCurrency = 'GBP';
-  } else if (/€|\bEUR\b/i.test(rawText)) {
+  } else if (/€|\bEUR\b/i.test(plainSectionText)) {
     detectedCurrency = 'EUR';
-  } else if (/¥|\bJPY\b/i.test(rawText)) {
+  } else if (/¥|\bJPY\b/i.test(plainSectionText)) {
     detectedCurrency = 'JPY';
-  } else if (/R\$|\bBRL\b/i.test(rawText)) {
+  } else if (/R\$|\bBRL\b/i.test(plainSectionText)) {
     detectedCurrency = 'BRL';
-  } else if (/\$|\bUSD\b/i.test(rawText)) {
+  } else if (/\$|\bUSD\b/i.test(plainSectionText)) {
     detectedCurrency = 'USD';
   }
 
-  // 0. Tenta extrair "Artist: HIM" dos Item Specifics se o usuário copiou a página do anúncio
+  const itemSpecificLabelsRegex =
+    /^(?:type|format|language|release\s*title|album\s*title|case\s*type|genre|style|record\s*label|release\s*year|country|edition|condition|features|era|artist|artista|category|breadcrumb)\b/i;
+
+  // 0. Tenta extrair "Artist: HIM" e "Release Title: love metal" dos Item Specifics se o usuário copiou a página do anúncio
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const m1 = line.match(
-      /^(?:artist|artista)\s*[:\t\s]\s*([A-Za-z0-9&'.\s]{2,40})$/i
-    );
-    if (m1) {
-      specificArtist = normalizeCase(m1[1]);
-      break;
+    if (!specificArtist) {
+      const m1 = line.match(
+        /^(?:artist|artista)\s*[:\t\s]\s*([A-Za-z0-9&'.\s]{2,40})$/i
+      );
+      if (m1 && !itemSpecificLabelsRegex.test(m1[1].trim())) {
+        specificArtist = normalizeCase(m1[1]);
+      } else {
+        const m2 = line.match(
+          /\b(?:artist|artista)\s*[:\t]?\s*([A-Za-z0-9&'.\s]{2,30}?)(?:\s+(?:type|title|condition|genre|format|label|language|case|country|release)|\s*$)/i
+        );
+        if (m2 && !itemSpecificLabelsRegex.test(m2[1].trim())) {
+          specificArtist = normalizeCase(m2[1]);
+        } else if (
+          /^(?:artist|artista)$/i.test(line) &&
+          lines[i + 1] &&
+          !itemSpecificLabelsRegex.test(lines[i + 1])
+        ) {
+          specificArtist = normalizeCase(lines[i + 1]);
+        }
+      }
     }
-    const m2 = line.match(
-      /\b(?:artist|artista)\s*[:\t]?\s*([A-Za-z0-9&'.\s]{2,30}?)(?:\s+(?:type|title|condition|genre|format|label|language|case|country|release)|\s*$)/i
-    );
-    if (m2) {
-      specificArtist = normalizeCase(m2[1]);
-      break;
-    }
-    if (/^(?:artist|artista)$/i.test(line) && lines[i + 1]) {
-      specificArtist = normalizeCase(lines[i + 1]);
-      break;
+
+    if (!specificReleaseTitle) {
+      const rtInline = line.match(
+        /^(?:release\s*title|album\s*title|t[íi]tulo(?:\s*do\s*[áa]lbum|\s*de\s*lan[çc]amento)?)\s*[:\t]\s*(.{2,80})$/i
+      );
+      if (rtInline && !itemSpecificLabelsRegex.test(rtInline[1].trim())) {
+        specificReleaseTitle = normalizeCase(rtInline[1].trim());
+      } else if (
+        /^(?:release\s*title|album\s*title)$/i.test(line) &&
+        lines[i + 1] &&
+        !itemSpecificLabelsRegex.test(lines[i + 1])
+      ) {
+        specificReleaseTitle = normalizeCase(lines[i + 1]);
+      }
     }
   }
 
   // 1. Detecta código de rastreio real (precisa ter dígitos!)
   // Suporta tanto "Tracking number: XYZ" quanto o layout novo do eBay US ("Tracking details \n Number \n 9449008106245751895056")
-  const trackingMatches = rawText.matchAll(
+  const trackingMatches = plainSectionText.matchAll(
     /(?:tracking\s*(?:details[\s\r\n]+)?(?:number|no\.?|#)?|rastreamento|rastreio)\s*[:#-\s]\s*([A-Z0-9]{8,26})\b/gi
   );
   for (const m of trackingMatches) {
@@ -704,34 +793,36 @@ export function parseEbayOrderCopiedText(rawText: string): EbayImportResult {
     }
   }
 
-  // 2. Detecta frete ("Shipping: Free", "Free UK Tracked Post", "Postage: GBP 3.50", "Shipping $5.00" ou "Shipping \n $5.00")
-  if (
+  // 2. Detecta frete priorizando valor numérico explícito ("Shipping: GBP 0.91", "Shipping $5.00") antes de "Free"
+  const shippingMatch = plainSectionText.match(
+    /(?:^|\n)\s*(?:shipping|postage|p&p|frete|envio)(?!\s*(?:address|returns|\s*and\s*payments))\s*[:\t\r\n\s]+(?:£|US\s*\$|\$|€|¥|R\$|\b(?:GBP|USD|EUR)\b)\s*(\d+(?:[.,]\d{1,2})?)/i
+  );
+  if (shippingMatch && shippingMatch[1]) {
+    internalShipping = parseFloat(shippingMatch[1].replace(',', '.'));
+  } else if (
     /\bfree\s+(?:royal\s+mail|uk\s+tracked|postage|shipping|delivery|p&p)\b/i.test(
-      rawText
+      plainSectionText
     ) ||
-    /(?:shipping|delivery|postage|p&p|frete)\s*[:\t]?\s*free\b/i.test(rawText)
+    /(?:shipping|delivery|postage|p&p|frete)\s*[:\t]?\s*free\b/i.test(
+      plainSectionText
+    )
   ) {
     internalShipping = 0;
-  } else {
-    const shippingMatch = rawText.match(
-      /(?:^|\n)\s*(?:shipping|postage|p&p|frete|envio)(?!\s*address)\s*[:\t\r\n\s]+(?:£|US\s*\$|\$|€|¥|R\$|\b(?:GBP|USD|EUR)\b)\s*(\d+(?:[.,]\d{1,2})?)/i
-    );
-    if (shippingMatch && shippingMatch[1]) {
-      internalShipping = parseFloat(shippingMatch[1].replace(',', '.'));
-    }
   }
 
-  // 3. Detecta o preço principal dos itens no texto (priorizando "1 item $13.00" / "Unit price" sobre "Order total $18.00" que soma frete)
+  // 3. Detecta o preço principal dos itens no texto (priorizando "1 item $13.00" / "Unit price" / "or Best Offer" sobre "Order total $18.00" que soma frete)
   let mainDetectedPrice: number | undefined;
   let fallbackTotalPrice: number | undefined;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const prevLine = i > 0 ? lines[i - 1] : '';
     if (/approximately/i.test(line)) continue;
-    // Ignora linhas de frete, reembolso ou cartão ("Ending in 1615 $18.00", "Total refunded -$5.00")
+    // Ignora linhas de frete, reembolso ou cartão ("Ending in 1615 $18.00", "Total refunded -$5.00", ou linha logo abaixo de "Shipping:")
     if (
       /\b(?:shipping|postage|refund|refunded|ending\s+in|amount\s+paid|tax)\b/i.test(
         line
-      )
+      ) ||
+      /^(?:shipping|postage|p&p|frete|envio)\s*:?$/i.test(prevLine)
     ) {
       continue;
     }
@@ -787,7 +878,7 @@ export function parseEbayOrderCopiedText(rawText: string): EbayImportResult {
   }
 
   const numberedAlbums = extractNumberedAlbumsFromDescription(
-    rawText,
+    plainSectionText,
     specificArtist
   );
   if (numberedAlbums.length >= 2) {
@@ -811,19 +902,41 @@ export function parseEbayOrderCopiedText(rawText: string): EbayImportResult {
     };
   }
 
-  // 5. Procura itens de CD no texto do pedido (order.ebay.com)
+  // 5. Procura itens de CD no texto do pedido (order.ebay.com) ou página do anúncio
   const items: ParsedEbayCDItem[] = [];
   const seenNormalizedTitles = new Set<string>();
 
   const ignoredLinePattern =
-    /^(?:order\s*total|subtotal|item\s*\(\d+\)|items\s*\(\d+\)|\d+\s*items?\b|shipping|delivery|postage|tax|vat|total|amount\s*paid|total\s*refunded|you\s*got\s*a\s*refund|ending\s*in\s*\d+|arrives\b|arriving\b|paid\b|tracking\s*available|tracking\s*provided|tracking\s*details|order\s*info|time\s*placed|sold\s*by|item\s*info|item\s*number|number\b|united\s*states|united\s*kingdom|orlando,\s*florida|how\s*do\s*you\s*like|tell\s*us\s*what\s*you\s*think|we're\s*required\s*by\s*law|learn\s*more|estimated\s*delivery|order\s*number|order\s*id|seller|payment|returns|view\s*order|track\s*package|buy\s*it\s*again|contact\s*seller|leave\s*feedback|more\s*actions|see\s*details|you\s*bought\s*this\s*item|condition|used\b|new\b|ended|located\s*in|cancellations|shop\s*with\s*confidence|item\s*description|seller\s*business|have\s*one\s*to\s*sell|sell\s*one\s*like\s*this|approximately|quantity|unit\s*price)/i;
+    /^(?:order\s*total|subtotal|item\s*\(\d+\)|items\s*\(\d+\)|\d+\s*items?\b|shipping|delivery|postage|tax|vat|total|amount\s*paid|total\s*refunded|you\s*got\s*a\s*refund|ending\s*in\s*\d+|arrives\b|arriving\b|paid\b|tracking\s*available|tracking\s*provided|tracking\s*details|order\s*info|time\s*placed|sold\s*by|item\s*info|item\s*number|ebay\s*item\s*number|item\s*specifics|about\s*this\s*item|number\b|united\s*states|united\s*kingdom|orlando,\s*florida|how\s*do\s*you\s*like|tell\s*us\s*what\s*you\s*think|we're\s*required\s*by\s*law|learn\s*more|estimated\s*delivery|order\s*number|order\s*id|seller|payment|returns|view\s*order|track\s*package|buy\s*it\s*again|contact\s*seller|leave\s*feedback|more\s*actions|see\s*details|you\s*bought\s*this\s*item|condition|very\s*good\s*:|good\s*:|like\s*new\s*:|brand\s*new\s*:|acceptable\s*:|used\b|new\b|ended|located\s*in|cancellations|shop\s*with\s*confidence|ebay\s*money\s*back|get\s*the\s*item\s*you\s*ordered|item\s*description|seller\s*business|have\s*one\s*to\s*sell|sell\s*one\s*like\s*this|sell\s*something\s*else|skip\s*to\s*main\s*content|shop\s*by\s*category|approximately|quantity|unit\s*price|case\s*type|release\s*title|record\s*label|breadcrumb)/i;
+
+  const boilerplateSubstringPattern =
+    /\b(?:ebay\s*money\s*back\s*guarantee|get\s*the\s*item\s*you\s*ordered|opens\s*in\s*a\s*new\s*(?:window|tab|dialog)|read\s*more\s*about\s*the\s*condition|an\s*item\s*that\s*is\s*used|no\s*damage\s*to\s*the\s*jewel\s*case|seller\s*assumes\s*all\s*responsibility|seller\s*does\s*not\s*accept\s*returns|for\s*more\s*information\s*about\s*returns|see\s*details\s*for\s*shipping|feedback\s*left\s*by\s*buyer)\b/i;
+
+  let inItemSpecificsBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Ignora linhas que são puramente preço ("GBP 18.00Unit price", "GBP 18.00", "Approximately US $24.02")
+    if (/^item\s*specifics\b/i.test(line)) {
+      inItemSpecificsBlock = true;
+      continue;
+    }
+    if (
+      /^(?:item\s*description(?:\s*from\s*the\s*seller)?|(?:order|item|payment|delivery)\s*info)\b/i.test(
+        line
+      )
+    ) {
+      inItemSpecificsBlock = false;
+      continue;
+    }
+    if (inItemSpecificsBlock) {
+      continue;
+    }
+
+    // Ignora linhas que são puramente preço ("GBP 18.00Unit price", "GBP 18.00", "Approximately US $24.02") ou boilerplate
     if (
       ignoredLinePattern.test(line) ||
+      boilerplateSubstringPattern.test(line) ||
       /unit\s*price/i.test(line) ||
       /best\s*offer/i.test(line) ||
       /^\d+\s*bids?\b/i.test(line) ||
@@ -836,10 +949,14 @@ export function parseEbayOrderCopiedText(rawText: string): EbayImportResult {
       continue;
     }
 
+    const isBareUrl = /^(?:https?:\/\/|(?:www\.|m\.)?ebay\.[a-z.]+\/)/i.test(
+      line
+    );
+
     const isLikelyTitle =
       line.length >= 8 &&
       line.length <= 160 &&
-      !line.startsWith('http') &&
+      !isBareUrl &&
       (/\bcd\b|\bdvd\b|\bvinyl\b|\blp\b|\b2lp\b|\b180g\b|\bgatefold\b|album|bundle|edition|disc|box\s*set/i.test(
         line
       ) ||
@@ -874,10 +991,10 @@ export function parseEbayOrderCopiedText(rawText: string): EbayImportResult {
     }
     seenNormalizedTitles.add(cleanLineForDedup);
 
-    // Olha nas próximas 1 a 6 linhas pelo preço deste item (incluindo "GBP 18.00Unit price")
+    // Olha nas próximas 1 a 10 linhas pelo preço deste item (incluindo "GBP 18.00Unit price" ou "GBP 15.00or Best Offer")
     let foundPrice: number | undefined = inlineTitlePrice;
     let foundQty = 1;
-    for (let j = i + 1; j <= Math.min(lines.length - 1, i + 6); j++) {
+    for (let j = i + 1; j <= Math.min(lines.length - 1, i + 10); j++) {
       const nextLine = lines[j];
       const qtyMatch = nextLine.match(
         /(?:quantity|qty|quantidade)\s*[:#]?\s*(\d+)/i
@@ -931,10 +1048,21 @@ export function parseEbayOrderCopiedText(rawText: string): EbayImportResult {
         });
       }
     } else {
+      let resolvedAlbumTitle = parsedTitle.albumTitle;
+      if (
+        specificReleaseTitle &&
+        (!resolvedAlbumTitle ||
+          resolvedAlbumTitle
+            .toLowerCase()
+            .startsWith(specificReleaseTitle.toLowerCase()))
+      ) {
+        resolvedAlbumTitle = specificReleaseTitle;
+      }
+
       items.push({
         rawTitle: line,
-        artist: parsedTitle.artist,
-        albumTitle: parsedTitle.albumTitle,
+        artist: parsedTitle.artist || specificArtist,
+        albumTitle: resolvedAlbumTitle,
         mediaType: parsedTitle.mediaType,
         discCount: parsedTitle.discCount,
         releaseYear: parsedTitle.releaseYear,
@@ -943,6 +1071,44 @@ export function parseEbayOrderCopiedText(rawText: string): EbayImportResult {
         currency: detectedCurrency,
       });
     }
+  }
+
+  // Fallback se nenhum título na página bateu na heurística mas os Item Specifics tinham Artist + Release Title
+  if (items.length === 0 && (specificArtist || specificReleaseTitle)) {
+    items.push({
+      rawTitle: `${specificArtist} - ${specificReleaseTitle}`.trim(),
+      artist: specificArtist,
+      albumTitle: specificReleaseTitle || specificArtist,
+      mediaType: 'cd',
+      discCount: 1,
+      unitPrice: mainDetectedPrice,
+      quantity: 1,
+      currency: detectedCurrency,
+    });
+  }
+
+  // Vincula ebayListingUrl se houver link ou Item ID no texto limpo
+  if (items.length > 0) {
+    const cleanListingUrls = extractEbayListingUrls(cleanedRawText);
+    const cleanItemIds = extractEbayItemIds(cleanedRawText);
+    const defaultDomain =
+      detectedCurrency === 'USD'
+        ? 'https://www.ebay.com/itm'
+        : 'https://www.ebay.co.uk/itm';
+
+    items.forEach((item, idx) => {
+      if (!item.ebayListingUrl) {
+        if (cleanListingUrls[idx]) {
+          item.ebayListingUrl = cleanListingUrls[idx];
+        } else if (cleanItemIds[idx]) {
+          item.ebayListingUrl = `${defaultDomain}/${cleanItemIds[idx]}`;
+        } else if (idx === 0 && cleanListingUrls[0]) {
+          item.ebayListingUrl = cleanListingUrls[0];
+        } else if (idx === 0 && cleanItemIds[0]) {
+          item.ebayListingUrl = `${defaultDomain}/${cleanItemIds[0]}`;
+        }
+      }
+    });
   }
 
   return {
