@@ -38,7 +38,9 @@ import {
 } from '@/types/tracker';
 import { STATUS_LABELS } from '@/components/ShipmentModal';
 import {
+  CURRENCY_HUB_INFO,
   formatBrl,
+  formatMediaCountLabel,
   formatOriginalCurrency,
   formatWeightKg,
   formatShortBundleBadge,
@@ -399,7 +401,27 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
 
                 <span className="hidden sm:inline text-slate-600">•</span>
 
-                <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                  <span
+                    title={
+                      CURRENCY_HUB_INFO[selectedSummary.shipment.currency]
+                        ?.fullHub
+                    }
+                    className="inline-flex items-center gap-1 rounded bg-slate-950 border border-slate-700 px-1.5 py-0.5 text-[11px] font-medium text-slate-200"
+                  >
+                    <span>
+                      {
+                        CURRENCY_HUB_INFO[selectedSummary.shipment.currency]
+                          ?.flag
+                      }
+                    </span>
+                    <span>
+                      {
+                        CURRENCY_HUB_INFO[selectedSummary.shipment.currency]
+                          ?.shortHub
+                      }
+                    </span>
+                  </span>
                   Câmbio:{' '}
                   <strong className="text-indigo-300 font-mono">
                     1 {selectedSummary.shipment.currency} ≈ R${' '}
@@ -602,9 +624,11 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                   <div className="flex items-center justify-between gap-1 text-slate-400 whitespace-nowrap">
                     <span className="font-sans">Quantidade:</span>
                     <span className="text-slate-300">
-                      {selectedSummary.totalItemsCount}{' '}
-                      {selectedSummary.totalItemsCount === 1 ? 'item' : 'itens'} (
-                      {selectedSummary.totalPhysicalDiscsCount}{' '}
+                      {formatMediaCountLabel(
+                        selectedSummary.cdItemsCount,
+                        selectedSummary.vinylItemsCount
+                      )}{' '}
+                      ({selectedSummary.totalPhysicalDiscsCount}{' '}
                       {selectedSummary.totalPhysicalDiscsCount === 1
                         ? 'disco'
                         : 'discos'}
@@ -830,7 +854,12 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
               <div>
                 <h3 className="text-base font-semibold text-white flex items-center gap-2">
                   <Disc3 className="w-5 h-5 text-purple-400" />
-                  CDs neste Pacote ({selectedSummary.items.length})
+                  Itens neste Pacote (
+                  {formatMediaCountLabel(
+                    selectedSummary.cdItemsCount,
+                    selectedSummary.vinylItemsCount
+                  )}
+                  )
                 </h3>
                 <p className="text-xs text-slate-400">
                   Toque no título de qualquer álbum para renomear ou na capa
@@ -892,7 +921,7 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                   className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-purple-600/25 transition ml-auto sm:ml-0 whitespace-nowrap"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Adicionar CD / Bundle</span>
+                  <span>Adicionar CD / Vinil</span>
                 </button>
               </div>
             </div>
@@ -1045,10 +1074,19 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                                       Caixa original
                                     </span>
                                   )}
-                                  {item.discCount > 1 && (
-                                    <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-mono text-indigo-300 whitespace-nowrap">
-                                      Box {item.discCount} CDs
+                                  {item.mediaType === 'vinyl' ? (
+                                    <span className="inline-flex items-center gap-1 rounded bg-amber-500/20 border border-amber-500/40 px-1.5 py-0.5 text-[10px] font-bold font-mono text-amber-300 whitespace-nowrap">
+                                      ⚫{' '}
+                                      {item.discCount > 1
+                                        ? `${item.discCount} LP (Vinil)`
+                                        : 'Vinil LP'}
                                     </span>
+                                  ) : (
+                                    item.discCount > 1 && (
+                                      <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-mono text-indigo-300 whitespace-nowrap">
+                                        Box {item.discCount} CDs
+                                      </span>
+                                    )
                                   )}
                                   {(item.ebayListingUrl ||
                                     item.ebayOrderUrl ||
@@ -1273,10 +1311,19 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                                             Caixa original
                                           </span>
                                         )}
-                                        {item.discCount > 1 && (
-                                          <span className="rounded bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 text-[10px] font-mono text-indigo-300 whitespace-nowrap">
-                                            Box {item.discCount} CDs
+                                        {item.mediaType === 'vinyl' ? (
+                                          <span className="inline-flex items-center gap-1 rounded bg-amber-500/20 border border-amber-500/40 px-1.5 py-0.5 text-[10px] font-bold font-mono text-amber-300 whitespace-nowrap">
+                                            ⚫{' '}
+                                            {item.discCount > 1
+                                              ? `${item.discCount} LP (Vinil)`
+                                              : 'Vinil LP'}
                                           </span>
+                                        ) : (
+                                          item.discCount > 1 && (
+                                            <span className="rounded bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 text-[10px] font-mono text-indigo-300 whitespace-nowrap">
+                                              Box {item.discCount} CDs
+                                            </span>
+                                          )
                                         )}
                                         {item.localTrackingCode && (
                                           <span className="font-mono text-[10px] text-sky-300 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 whitespace-nowrap">

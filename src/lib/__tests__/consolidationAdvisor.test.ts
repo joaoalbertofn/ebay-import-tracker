@@ -177,4 +177,96 @@ describe('consolidationAdvisor', () => {
     // Taxa = 3 * 3.6 = 10.80 + Frete 41.00 = 51.80 / 10 = £5.18 por CD
     expect(best.consolidationAndIntlPerCdOriginal).toBeCloseTo(5.18, 2);
   });
+
+  it('calcula o peso líquido estimado dos Vinis (1 LP = 300g, 2 LPs = 500g) e filtra por Hub/Moeda quando filterByCurrency = true', () => {
+    const usVinylPkg1: ForwarderPackageOption = {
+      shipment: {
+        id: 'us-vinyl-1',
+        name: '[Vinil Individual] Him - Tears On Tape',
+        shippingDate: '2026-11-03',
+        status: 'comprado',
+        currency: 'USD',
+        exchangeRate: 5.8,
+        consolidationMode: 'direct',
+        internalShipping: 5.0,
+        forwarderFee: 0,
+        internationalShipping: 0,
+        customsTaxBrl: 0,
+        isTaxEstimated: false,
+        createdAt: '2026-11-03T12:00:00.000Z',
+      },
+      items: [
+        {
+          id: 'lp-1',
+          shipmentId: 'us-vinyl-1',
+          currency: 'USD',
+          artist: 'Him',
+          albumTitle: 'Tears On Tape',
+          discCount: 1,
+          mediaType: 'vinyl',
+          isBundle: false,
+          unitOriginalValue: 13.0,
+          createdAt: '2026-11-03T12:00:00.000Z',
+        },
+      ],
+    };
+
+    const usVinylPkg2: ForwarderPackageOption = {
+      shipment: {
+        id: 'us-vinyl-2',
+        name: '[Vinil Individual] Him - And Love Said No',
+        shippingDate: '2026-11-03',
+        status: 'comprado',
+        currency: 'USD',
+        exchangeRate: 5.8,
+        consolidationMode: 'direct',
+        internalShipping: 5.0,
+        forwarderFee: 0,
+        internationalShipping: 0,
+        customsTaxBrl: 0,
+        isTaxEstimated: false,
+        createdAt: '2026-11-03T12:00:00.000Z',
+      },
+      items: [
+        {
+          id: 'lp-2',
+          shipmentId: 'us-vinyl-2',
+          currency: 'USD',
+          artist: 'Him',
+          albumTitle: 'When Love and Death Embrace Best Of 1997-2003',
+          discCount: 2, // 2 LP -> 500g
+          mediaType: 'vinyl',
+          isBundle: false,
+          unitOriginalValue: 28.0,
+          createdAt: '2026-11-03T12:00:00.000Z',
+        },
+      ],
+    };
+
+    const ukCdPkg = makePackage('uk-cd-1', 'CD UK', 'comprado', [5.0]);
+
+    const evalSingleLp = evaluateForwarderPackage(usVinylPkg1);
+    expect(evalSingleLp.weightKg).toBe(0.3); // 300g
+    expect(evalSingleLp.vinylCount).toBe(1);
+
+    const evalDoubleLp = evaluateForwarderPackage(usVinylPkg2);
+    expect(evalDoubleLp.weightKg).toBe(0.5); // 500g
+    expect(evalDoubleLp.vinylCount).toBe(1);
+
+    const usReport = generateConsolidationAdvisorReport(
+      [usVinylPkg1, usVinylPkg2, ukCdPkg],
+      {
+        targetMaxWeightKg: 1.5,
+        includePurchasedInTransit: true,
+        currency: 'USD',
+        filterByCurrency: true,
+        exchangeRate: 5.8,
+      }
+    );
+
+    expect(usReport.eligiblePool).toHaveLength(2);
+    expect(usReport.suggestions[0].totalCds).toBe(2);
+    expect(usReport.suggestions[0].totalVinyls).toBe(2);
+    expect(usReport.suggestions[0].totalWeightKg).toBe(0.8); // 300g + 500g = 0.80kg
+  });
 });

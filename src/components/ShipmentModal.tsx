@@ -5,6 +5,7 @@ import {
   CDItem,
   ConsolidationMode,
   CurrencyCode,
+  MediaType,
   Shipment,
   ShipmentStatus,
 } from '@/types/tracker';
@@ -49,10 +50,11 @@ import {
 
 
 export interface InitialCDEntry {
-  id?: string; // Presente quando representa um CD já existente no pacote em edição
+  id?: string; // Presente quando representa um item já existente no pacote em edição
   artist: string;
   albumTitle: string;
-  unitPrice: string; // Preço individual deste CD
+  mediaType?: MediaType; // 'cd' (padrão) ou 'vinyl' (LP)
+  unitPrice: string; // Preço individual deste item
   discCount?: number;
   coverUrl?: string;
   releaseYear?: string;
@@ -70,6 +72,7 @@ export interface InitialBundlePayload {
     id?: string;
     artist: string;
     albumTitle: string;
+    mediaType?: MediaType;
     unitPrice?: number;
     discCount?: number;
     coverUrl?: string;
@@ -300,6 +303,7 @@ export function ShipmentModal({
             id: item.id,
             artist: item.artist,
             albumTitle: item.albumTitle,
+            mediaType: item.mediaType || 'cd',
             unitPrice:
               item.unitOriginalValue > 0
                 ? String(Number(item.unitOriginalValue.toFixed(2)))
@@ -319,12 +323,25 @@ export function ShipmentModal({
       }
       syncFeePresetsToState(editingShipment.currency);
     } else {
+      const preselectedSet = new Set(initialPreselectedPackageIds);
+      const matchingPackages =
+        initialPreselectedPackageIds.length > 0
+          ? forwarderPackages.filter(
+              (fp) => preselectedSet.has(fp.shipment.id) && fp.items.length > 0
+            )
+          : [];
+      const initialCurr: CurrencyCode =
+        matchingPackages[0]?.shipment.currency || 'GBP';
+
       setName('');
       setIsCustomName(false);
       setShippingDate(getTodayLocalIsoDate());
       setStatus('comprado');
-      setCurrency('GBP');
-      setExchangeRate(CURRENCY_META.GBP.defaultRate);
+      setCurrency(initialCurr);
+      setExchangeRate(
+        matchingPackages[0]?.shipment.exchangeRate ||
+          CURRENCY_META[initialCurr].defaultRate
+      );
       setRateSourceInfo('Cotação Automática');
       setWeightKg('');
       setInternalShipping('0');
@@ -338,16 +355,18 @@ export function ShipmentModal({
       setBundleTotalValue('');
       setLocalTrackingCode('');
       setCdEntries([
-        { artist: '', albumTitle: '', unitPrice: '', discCount: 1 },
+        {
+          artist: '',
+          albumTitle: '',
+          mediaType: 'cd',
+          unitPrice: '',
+          discCount: 1,
+        },
       ]);
-      const { savedGroup, savedUnpack } = syncFeePresetsToState('GBP');
-      handleFetchLiveRate('GBP');
+      const { savedGroup, savedUnpack } = syncFeePresetsToState(initialCurr);
+      handleFetchLiveRate(initialCurr);
 
-      if (initialPreselectedPackageIds.length > 0) {
-        const preselectedSet = new Set(initialPreselectedPackageIds);
-        const matchingPackages = forwarderPackages.filter(
-          (fp) => preselectedSet.has(fp.shipment.id) && fp.items.length > 0
-        );
+      if (matchingPackages.length > 0) {
         const preselectedCdIds = new Set<string>(
           matchingPackages.flatMap((fp) => fp.items.map((cd) => cd.id))
         );
@@ -413,21 +432,31 @@ export function ShipmentModal({
     }
 
     if (data.items && data.items.length > 0) {
-      // Verifica se todos os itens têm preços distintos (compra multi-item) ou se fazem parte de um lote único (bundle)
+      // Verifica se já existem itens preenchidos na tabela para permitir colar múltiplos pedidos seguidos no mesmo pacote
+      const existingFilledEntries = cdEntries.filter(
+        (e) =>
+          Boolean(e.id) ||
+          e.artist.trim() !== '' ||
+          e.albumTitle.trim() !== ''
+      );
+
+      // Verifica se todos os itens têm preços distintos (compra multi-item) ou se é uma adição a itens já existentes
       const hasDistinctIndividualPrices =
-        data.items.length > 1 &&
-        data.items.some(
-          (item, _, arr) =>
-            item.unitPrice !== undefined &&
-            arr[0].unitPrice !== undefined &&
-            Math.abs(item.unitPrice - arr[0].unitPrice) > 0.01
-        );
+        existingFilledEntries.length > 0 ||
+        (data.items.length > 1 &&
+          data.items.some(
+            (item, _, arr) =>
+              item.unitPrice !== undefined &&
+              arr[0].unitPrice !== undefined &&
+              Math.abs(item.unitPrice - arr[0].unitPrice) > 0.01
+          ));
 
       const importedEntries: InitialCDEntry[] = data.items.map((item) => ({
         artist: item.artist || '',
         albumTitle: item.albumTitle || item.rawTitle || '',
+        mediaType: item.mediaType || 'cd',
         unitPrice:
-          hasDistinctIndividualPrices &&
+          (hasDistinctIndividualPrices || data.items.length === 1) &&
           item.unitPrice !== undefined &&
           item.unitPrice >= 0
             ? String(Number(item.unitPrice.toFixed(2)))
@@ -438,16 +467,39 @@ export function ShipmentModal({
         ebayListingUrl: item.ebayListingUrl,
       }));
 
-      // Mantém apenas CDs já salvos no banco (com id); substitui rascunhos não salvos para não duplicar ao testar várias vezes
-      const savedEntries = cdEntries.filter((e) => Boolean(e.id));
+      // Mantém itens já preenchidos (evitando duplicar caso o usuário cole exatamente o mesmo item duas vezes)
+      const isDuplicateImport =
+        existingFilledEntries.length > 0 &&
+        importedEntries.every((imp) =>
+          existingFilledEntries.some(
+            (ex) =>
+              ex.artist.toLowerCase() === imp.artist.toLowerCase() &&
+              ex.albumTitle.toLowerCase() === imp.albumTitle.toLowerCase()
+          )
+        );
+
+      const baseEntries = isDuplicateImport
+        ? cdEntries.filter((e) => Boolean(e.id))
+        : existingFilledEntries;
+
       const nextEntries =
-        savedEntries.length > 0
-          ? [...savedEntries, ...importedEntries]
+        baseEntries.length > 0
+          ? [...baseEntries, ...importedEntries]
           : importedEntries;
 
       setCdEntries(nextEntries);
 
-      if (data.bundleTotalValue !== undefined && data.bundleTotalValue > 0) {
+      const sumNextUnitPrices = nextEntries.reduce(
+        (acc, e) => acc + Math.max(0, parseFloat(e.unitPrice) || 0),
+        0
+      );
+
+      if (baseEntries.length > 0 && sumNextUnitPrices > 0) {
+        setBundleTotalValue(String(Number(sumNextUnitPrices.toFixed(2))));
+      } else if (
+        data.bundleTotalValue !== undefined &&
+        data.bundleTotalValue > 0
+      ) {
         setBundleTotalValue(String(Number(data.bundleTotalValue.toFixed(2))));
       } else {
         const sumPrices = data.items.reduce(
@@ -487,12 +539,22 @@ export function ShipmentModal({
         }
       });
 
+      const importedVinylCount = importedEntries.filter(
+        (e) => e.mediaType === 'vinyl'
+      ).length;
+      const itemLabelPlural =
+        importedVinylCount === importedEntries.length
+          ? importedEntries.length === 1
+            ? 'Vinil (LP) importado'
+            : 'Vinis (LPs) importados'
+          : importedEntries.length === 1
+          ? 'CD importado'
+          : 'CDs importados';
+
       setEbayQuickPasteInput('');
       setEbayImportFeedback({
         type: 'success',
-        text: `${importedEntries.length} ${
-          importedEntries.length === 1 ? 'CD importado' : 'CDs importados'
-        }${
+        text: `${importedEntries.length} ${itemLabelPlural}${
           data.ebayOrderId ? ` + Pedido #${data.ebayOrderId} vinculado` : ''
         }! Confira os campos abaixo.`,
       });
@@ -569,7 +631,7 @@ export function ShipmentModal({
 
   const handleUpdateCdEntry = (
     index: number,
-    field: 'artist' | 'albumTitle' | 'unitPrice' | 'discCount',
+    field: 'artist' | 'albumTitle' | 'unitPrice' | 'discCount' | 'mediaType',
     value: string
   ) => {
     setCdEntries((prev) => {
@@ -583,6 +645,8 @@ export function ShipmentModal({
         [field]:
           field === 'discCount'
             ? Math.max(1, parseInt(value, 10) || 1)
+            : field === 'mediaType'
+            ? (value as MediaType)
             : value,
         ...resetCandidates,
       };
@@ -606,12 +670,13 @@ export function ShipmentModal({
 
   const handleAddCdEntryRow = () => {
     setCdEntries((prev) => {
-      const lastArtist = prev[prev.length - 1]?.artist || '';
+      const lastEntry = prev[prev.length - 1];
       return [
         ...prev,
         {
-          artist: lastArtist,
+          artist: lastEntry?.artist || '',
           albumTitle: '',
+          mediaType: lastEntry?.mediaType || 'cd',
           unitPrice: '',
           discCount: 1,
         },
@@ -929,6 +994,7 @@ export function ShipmentModal({
                 id: entry.id,
                 artist: entry.artist,
                 albumTitle: entry.albumTitle,
+                mediaType: entry.mediaType || 'cd',
                 unitPrice:
                   !Number.isNaN(parsedRowPrice) && parsedRowPrice >= 0
                     ? parsedRowPrice
@@ -1134,7 +1200,7 @@ export function ShipmentModal({
               onEbayQuickPasteChange={setEbayQuickPasteInput}
               onImportFromEbay={handleImportFromEbay}
               onChangeCurrency={(newCurr) => {
-                setCurrency(newCurr);
+                handleCurrencyChange(newCurr);
                 setIsCustomName(false);
               }}
               onChangeExchangeRate={setExchangeRate}

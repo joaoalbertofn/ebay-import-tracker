@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   CalculatedCDItem,
+  MediaType,
   Shipment,
   ShipmentStatus,
 } from '@/types/tracker';
 import {
+  CURRENCY_HUB_INFO,
   formatBrl,
   formatOriginalCurrency,
   formatWeightKg,
@@ -43,6 +45,19 @@ export function GlobalCollectionView({
   onSortByChange,
   onNavigateToPackage,
 }: GlobalCollectionViewProps) {
+  const [mediaFilter, setMediaFilter] = useState<'ALL' | MediaType>('ALL');
+
+  const vinylTotalCount = entries.filter(
+    (e) => e.item.mediaType === 'vinyl'
+  ).length;
+  const cdTotalCount = entries.length - vinylTotalCount;
+
+  const filteredByMediaEntries = entries.filter((e) => {
+    if (mediaFilter === 'ALL') return true;
+    const itemMedia: MediaType = e.item.mediaType || 'cd';
+    return itemMedia === mediaFilter;
+  });
+
   return (
     <main className="flex-1 max-w-[1600px] w-full mx-auto px-3.5 sm:px-6 py-4 sm:py-6 space-y-4">
       <div className="rounded-2xl bg-slate-900/60 border border-slate-800/90 p-4 sm:p-5 space-y-4">
@@ -50,14 +65,52 @@ export function GlobalCollectionView({
           <div>
             <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
               <Disc3 className="w-5 h-5 text-purple-400" />
-              Minha Coleção Completa ({entries.length} de {totalCollectionCount} CDs)
+              Minha Coleção Completa ({filteredByMediaEntries.length} de{' '}
+              {totalCollectionCount} itens)
             </h2>
             <p className="text-xs text-slate-400">
-              Consulte e compare todos os CDs importados entre todos os seus pacotes.
+              Consulte e compare todos os CDs e Discos de Vinil importados entre
+              todos os seus pacotes.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Filtro rápido de formato: Todos | CDs | Vinis */}
+            <div className="inline-flex rounded-xl bg-slate-950 border border-slate-800 p-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setMediaFilter('ALL')}
+                className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
+                  mediaFilter === 'ALL'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Todos ({entries.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setMediaFilter('cd')}
+                className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
+                  mediaFilter === 'cd'
+                    ? 'bg-purple-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                💿 CDs ({cdTotalCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setMediaFilter('vinyl')}
+                className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
+                  mediaFilter === 'vinyl'
+                    ? 'bg-amber-500 text-slate-950'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                ⚫ Vinis ({vinylTotalCount})
+              </button>
+            </div>
             <div className="relative flex-1 sm:w-64">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
@@ -120,18 +173,18 @@ export function GlobalCollectionView({
           </div>
         </div>
 
-        {entries.length === 0 ? (
+        {filteredByMediaEntries.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-800 p-10 text-center space-y-2">
             <Disc3 className="w-10 h-10 text-slate-600 mx-auto" />
             <p className="text-sm font-medium text-slate-300">
-              Nenhum CD encontrado para este filtro
+              Nenhum item encontrado para este filtro
             </p>
           </div>
         ) : (
           <>
             {/* Mobile Cards da Coleção Global */}
             <div className="space-y-2.5 md:hidden">
-              {entries.map(({ item, shipment }) => {
+              {filteredByMediaEntries.map(({ item, shipment }) => {
                 const statusInfo = STATUS_LABELS[shipment.status];
                 return (
                   <div
@@ -159,11 +212,17 @@ export function GlobalCollectionView({
                           {item.albumTitle}
                         </p>
                         <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                          {item.mediaType === 'vinyl' && (
+                            <span className="inline-flex items-center gap-1 rounded bg-amber-500/20 border border-amber-500/40 px-1.5 py-0.5 text-[10px] font-bold font-mono text-amber-300">
+                              ⚫ {item.discCount > 1 ? `${item.discCount} LP` : 'LP'}
+                            </span>
+                          )}
                           <button
                             type="button"
                             onClick={() => onNavigateToPackage(shipment.id)}
                             className="inline-flex items-center gap-1 rounded bg-slate-800 hover:bg-slate-700 px-1.5 py-0.5 text-[10px] text-indigo-300 truncate max-w-[180px]"
                           >
+                            <span>{CURRENCY_HUB_INFO[shipment.currency]?.flag}</span>
                             <Package className="w-2.5 h-2.5 shrink-0" />
                             <span className="truncate">{shipment.name}</span>
                           </button>
@@ -187,13 +246,13 @@ export function GlobalCollectionView({
                   <tr className="border-b border-slate-800 bg-slate-950/90 text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap">
                     <th className="py-3 px-4">Capa, Artista & Álbum</th>
                     <th className="py-3 px-3">Pacote & Status</th>
-                    <th className="py-3 px-3 text-right">Valor do CD</th>
+                    <th className="py-3 px-3 text-right">Valor Original</th>
                     <th className="py-3 px-3 text-right">+ Rateio Unit.</th>
                     <th className="py-3 px-4 text-right">Custo Final (BRL)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/70 text-sm">
-                  {entries.map(({ item, shipment }) => {
+                  {filteredByMediaEntries.map(({ item, shipment }) => {
                     const statusInfo = STATUS_LABELS[shipment.status];
                     return (
                       <tr
@@ -219,10 +278,19 @@ export function GlobalCollectionView({
                                     ({item.releaseYear})
                                   </span>
                                 )}
-                                {item.discCount > 1 && (
-                                  <span className="rounded bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 text-[10px] font-mono text-indigo-300">
-                                    Box {item.discCount} CDs
+                                {item.mediaType === 'vinyl' ? (
+                                  <span className="rounded bg-amber-500/20 border border-amber-500/40 px-1.5 py-0.5 text-[10px] font-bold font-mono text-amber-300">
+                                    ⚫{' '}
+                                    {item.discCount > 1
+                                      ? `${item.discCount} LP`
+                                      : 'Vinil LP'}
                                   </span>
+                                ) : (
+                                  item.discCount > 1 && (
+                                    <span className="rounded bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 text-[10px] font-mono text-indigo-300">
+                                      Box {item.discCount} CDs
+                                    </span>
+                                  )
                                 )}
                               </div>
                               <div className="text-xs text-slate-300">
@@ -240,6 +308,9 @@ export function GlobalCollectionView({
                               title="Abrir detalhes deste pacote"
                               className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 px-2.5 py-1 text-xs font-medium text-indigo-300 transition max-w-[260px] truncate"
                             >
+                              <span>
+                                {CURRENCY_HUB_INFO[shipment.currency]?.flag}
+                              </span>
                               <Package className="w-3.5 h-3.5 shrink-0" />
                               <span className="truncate">{shipment.name}</span>
                             </button>

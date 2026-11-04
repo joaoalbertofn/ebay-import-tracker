@@ -588,6 +588,7 @@ export default function CDImportTrackerApp() {
             albumTitle: entry.albumTitle,
             unitPrice: entry.unitPrice,
             discCount: entry.discCount || 1,
+            mediaType: entry.mediaType,
             coverUrl: entry.coverUrl,
             releaseYear: entry.releaseYear,
             ebayListingUrl: entry.ebayListingUrl,

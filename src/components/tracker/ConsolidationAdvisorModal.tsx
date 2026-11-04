@@ -31,7 +31,9 @@ import {
 } from '@/lib/storage/feePresets';
 import { CURRENCY_META } from '@/lib/calculations';
 import {
+  CURRENCY_HUB_INFO,
   formatBrl,
+  formatMediaCountLabel,
   formatOriginalCurrency,
   formatWeightKg,
 } from '@/lib/formatters';
@@ -73,11 +75,29 @@ export const ConsolidationAdvisorModal: React.FC<
   );
   const [customIntlShipping, setCustomIntlShipping] = useState<string>('');
 
-  // Moeda e câmbio baseados no pacote mais recente elegível (padrão GBP)
-  const dominantCurrency: CurrencyCode = useMemo(() => {
-    const first = forwarderPackages[0]?.shipment.currency;
-    return first || 'GBP';
+  // Moedas / Hubs disponíveis nos pacotes elegíveis (sempre mostrando ao menos GBP e USD se existirem)
+  const availableCurrencies: CurrencyCode[] = useMemo(() => {
+    const set = new Set<CurrencyCode>();
+    for (const fp of forwarderPackages) {
+      if (fp.items.length > 0) {
+        set.add(fp.shipment.currency);
+      }
+    }
+    if (set.size === 0) {
+      set.add('GBP');
+    }
+    return Array.from(set);
   }, [forwarderPackages]);
+
+  const [selectedCurrency, setSelectedCurrency] = useState<CurrencyCode>(() => {
+    return forwarderPackages[0]?.shipment.currency || 'GBP';
+  });
+
+  const dominantCurrency: CurrencyCode = availableCurrencies.includes(
+    selectedCurrency
+  )
+    ? selectedCurrency
+    : availableCurrencies[0] || 'GBP';
 
   const referenceExchangeRate = useMemo(() => {
     const matching = forwarderPackages.find(
@@ -128,6 +148,7 @@ export const ConsolidationAdvisorModal: React.FC<
       includePurchasedInTransit: includePurchased,
       mode,
       currency: dominantCurrency,
+      filterByCurrency: true,
       exchangeRate: referenceExchangeRate,
       groupOnlyFeeUnit: feePresets.savedGroup,
       unpackAndRepackFeeUnit: feePresets.savedUnpack,
@@ -189,6 +210,45 @@ export const ConsolidationAdvisorModal: React.FC<
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
           {/* Painel de Parâmetros e Filtros */}
           <div className="rounded-xl bg-slate-950/80 border border-slate-800/90 p-3.5 sm:p-4 space-y-3.5">
+            {/* Seletor de Hub / País quando houver pacotes em mais de uma moeda (ex: UK GBP vs EUA USD) */}
+            {availableCurrencies.length > 1 && (
+              <div className="pb-3 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  Hub / Redirecionador para Consolidar:
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {availableCurrencies.map((curr) => {
+                    const isCurrSelected = dominantCurrency === curr;
+                    const countInCurr = forwarderPackages.filter(
+                      (fp) => fp.shipment.currency === curr && fp.items.length > 0
+                    ).length;
+                    const hubInfo = CURRENCY_HUB_INFO[curr];
+                    return (
+                      <button
+                        key={curr}
+                        type="button"
+                        onClick={() => {
+                          setSelectedCurrency(curr);
+                          setCustomIntlShipping('');
+                        }}
+                        className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                          isCurrSelected
+                            ? 'bg-indigo-600/25 border-indigo-400 text-white shadow-sm'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <span>{hubInfo?.flag}</span>
+                        <span>{hubInfo?.fullHub || curr}</span>
+                        <span className="rounded bg-slate-950/80 px-1.5 py-0.5 text-[10px] font-mono text-indigo-300">
+                          {countInCurr} pct
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-end">
               {/* 1. Seletor de Meta de Peso */}
               <div className="md:col-span-6 space-y-1.5">
@@ -443,8 +503,19 @@ export const ConsolidationAdvisorModal: React.FC<
                         </span>
 
                         <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1 text-xs text-slate-200">
-                          <Disc3 className="w-3.5 h-3.5 text-purple-400" />
-                          <strong>{sug.totalCds}</strong> CDs
+                          <Disc3
+                            className={`w-3.5 h-3.5 ${
+                              sug.totalVinyls > 0
+                                ? 'text-amber-400'
+                                : 'text-purple-400'
+                            }`}
+                          />
+                          <strong>
+                            {formatMediaCountLabel(
+                              sug.totalCds - sug.totalVinyls,
+                              sug.totalVinyls
+                            )}
+                          </strong>
                           {sug.totalPhysicalDiscs > sug.totalCds && (
                             <span className="text-[11px] text-slate-400">
                               ({sug.totalPhysicalDiscs} discos)
@@ -682,9 +753,17 @@ export const ConsolidationAdvisorModal: React.FC<
                             </div>
 
                             <div className="flex items-center gap-1.5 shrink-0 font-mono text-[11px]">
-                              <span className="rounded bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.5 text-purple-300">
-                                {pkg.cdCount}{' '}
-                                {pkg.cdCount === 1 ? 'CD' : 'CDs'}
+                              <span
+                                className={`rounded px-1.5 py-0.5 border ${
+                                  pkg.vinylCount > 0
+                                    ? 'bg-amber-500/15 border-amber-500/35 text-amber-300'
+                                    : 'bg-purple-500/15 border border-purple-500/30 text-purple-300'
+                                }`}
+                              >
+                                {formatMediaCountLabel(
+                                  pkg.cdCount - pkg.vinylCount,
+                                  pkg.vinylCount
+                                )}
                               </span>
                               <span
                                 title={

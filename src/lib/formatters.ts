@@ -43,7 +43,8 @@ export function formatShortBundleBadge(
     !rawName ||
     rawName === currentShipmentName ||
     rawName.startsWith('[Lote]') ||
-    rawName.startsWith('[CD Individual]')
+    rawName.startsWith('[CD Individual]') ||
+    rawName.startsWith('[Vinil Individual]')
   ) {
     return `Lote (1/${qty})`;
   }
@@ -51,3 +52,29 @@ export function formatShortBundleBadge(
     rawName.length > 18 ? `${rawName.slice(0, 18).trim()}…` : rawName;
   return `${shortName} (1/${qty})`;
 }
+
+export function formatMediaCountLabel(
+  cdCount: number,
+  vinylCount: number = 0
+): string {
+  if (vinylCount > 0 && cdCount > 0) {
+    return `${cdCount} ${cdCount === 1 ? 'CD' : 'CDs'} + ${vinylCount} ${
+      vinylCount === 1 ? 'Vinil' : 'Vinis'
+    }`;
+  }
+  if (vinylCount > 0) {
+    return `${vinylCount} ${vinylCount === 1 ? 'Vinil' : 'Vinis'}`;
+  }
+  return `${cdCount} ${cdCount === 1 ? 'CD' : 'CDs'}`;
+}
+
+export const CURRENCY_HUB_INFO: Record<
+  CurrencyCode,
+  { flag: string; shortHub: string; fullHub: string }
+> = {
+  GBP: { flag: '🇬🇧', shortHub: 'UK', fullHub: 'Hub UK (ForwardVia / Send2Hub)' },
+  USD: { flag: '🇺🇸', shortHub: 'EUA', fullHub: 'Hub EUA (UsCloser - Orlando)' },
+  EUR: { flag: '🇪🇺', shortHub: 'UE', fullHub: 'Hub Europa (Alemanha / UE)' },
+  JPY: { flag: '🇯🇵', shortHub: 'JP', fullHub: 'Hub Japão' },
+  BRL: { flag: '🇧🇷', shortHub: 'BR', fullHub: 'Nacional (Brasil)' },
+};

@@ -39,7 +39,7 @@ interface CDEntriesBatchTableProps {
   onRemoveCdEntryRow: (idx: number) => void;
   onUpdateCdEntry: (
     idx: number,
-    field: 'artist' | 'albumTitle' | 'unitPrice' | 'discCount',
+    field: 'artist' | 'albumTitle' | 'unitPrice' | 'discCount' | 'mediaType',
     value: string
   ) => void;
   onFetchOrCycleCover: (idx: number, forceNextCandidate: boolean) => void;
@@ -92,10 +92,10 @@ export const CDEntriesBatchTable: React.FC<CDEntriesBatchTableProps> = ({
           <span className="text-xs font-semibold uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
             <Disc3 className="w-4 h-4 text-purple-400" />
             {editingShipment
-              ? `CDs deste Pacote (${cdEntries.length})`
+              ? `Itens deste Pacote (${cdEntries.length})`
               : selectedExistingCdIdsSize > 0
-              ? `Adicionar também Novos CDs (${currSymbol})`
-              : `CDs deste Pacote (${currency})`}
+              ? `Adicionar também Novos CDs / Vinis (${currSymbol})`
+              : `CDs / Vinis deste Pacote (${currency})`}
           </span>
           <p className="text-[11px] text-slate-400 mt-0.5">
             {isCustomName ? (
@@ -122,7 +122,7 @@ export const CDEntriesBatchTable: React.FC<CDEntriesBatchTableProps> = ({
           onClick={onAddCdEntryRow}
           className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-400/40 px-3 py-1.5 text-xs font-semibold text-purple-200 transition"
         >
-          <Plus className="w-3.5 h-3.5" /> Adicionar CD
+          <Plus className="w-3.5 h-3.5" /> Adicionar Item
         </button>
       </div>
 
@@ -358,11 +358,43 @@ export const CDEntriesBatchTable: React.FC<CDEntriesBatchTableProps> = ({
                 </div>
               </div>
 
-              {/* Nº Discos + Preço Individual + Botão Capa + Excluir */}
+              {/* Seletor Rápido CD/LP + Nº Discos + Preço Individual + Botão Capa + Excluir */}
               <div className="flex items-center justify-end gap-1.5 sm:shrink-0 pl-13 sm:pl-0">
                 <div
+                  className="inline-flex rounded-lg bg-slate-900 border border-slate-700 p-0.5 shrink-0"
+                  title="Seletor rápido: CD (~130g) ou Disco de Vinil / LP (~300g simples / ~500g duplo)"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onUpdateCdEntry(idx, 'mediaType', 'cd')}
+                    className={`px-2 py-1 rounded-md text-[10px] font-bold transition cursor-pointer ${
+                      (entry.mediaType || 'cd') === 'cd'
+                        ? 'bg-purple-600 text-white shadow'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    CD
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onUpdateCdEntry(idx, 'mediaType', 'vinyl')}
+                    className={`px-2 py-1 rounded-md text-[10px] font-bold transition cursor-pointer ${
+                      entry.mediaType === 'vinyl'
+                        ? 'bg-amber-500 text-slate-950 shadow'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    LP
+                  </button>
+                </div>
+
+                <div
                   className="w-14"
-                  title="Nº de Discos físicos (1 = Simples, 2 = Duplo, 3+ = Box Set)"
+                  title={
+                    entry.mediaType === 'vinyl'
+                      ? 'Nº de LPs (1 = 1 LP ~300g, 2 = 2 LPs ~500g)'
+                      : 'Nº de Discos físicos (1 = Simples, 2 = Duplo, 3+ = Box Set)'
+                  }
                 >
                   <input
                     type="number"

@@ -117,10 +117,10 @@ function extractStructuredListingFromDescription(descText: string): {
     return { rawTitle: frooTitle, artist: frooAuthor };
   }
 
-  // 2. Linhas diretas de anúncio de CD (ex: "System of a Down Hypnotize 2005 Sony BMG Rock CD Album")
+  // 2. Linhas diretas de anúncio de CD ou Vinil (ex: "System of a Down Hypnotize 2005 Sony BMG Rock CD Album")
   for (const line of lines) {
     if (
-      /\b(?:cd\s*album|rock\s*cd|audio\s*cd|cd\s*single|jewel\s*case)\b/i.test(
+      /\b(?:cd\s*album|rock\s*cd|audio\s*cd|cd\s*single|jewel\s*case|vinyl\s*lp|clear\s*vinyl|white\s*vinyl|colored\s*vinyl|2\s*lp|double\s*lp)\b/i.test(
         line
       ) &&
       line.length >= 12 &&
@@ -528,13 +528,15 @@ async function fetchPublicEbayListingItems(url: string): Promise<{
       unitPrice !== undefined
         ? Number((unitPrice / count).toFixed(4))
         : undefined;
+    const itemLabel = parsedTitle.mediaType === 'vinyl' ? 'Vinil' : 'CD';
 
     const generatedBundleItems: ParsedEbayCDItem[] = [];
     for (let i = 0; i < count; i++) {
       generatedBundleItems.push({
         rawTitle,
         artist: artistName,
-        albumTitle: `CD #${i + 1} do Lote${artistName ? ` (${artistName})` : ''}`,
+        albumTitle: `${itemLabel} #${i + 1} do Lote${artistName ? ` (${artistName})` : ''}`,
+        mediaType: parsedTitle.mediaType,
         discCount: 1,
         unitPrice: unitEach,
         currency,
@@ -561,6 +563,7 @@ async function fetchPublicEbayListingItems(url: string): Promise<{
         rawTitle,
         artist: parsedTitle.artist,
         albumTitle: parsedTitle.albumTitle,
+        mediaType: parsedTitle.mediaType,
         discCount: parsedTitle.discCount,
         releaseYear: parsedTitle.releaseYear,
         unitPrice,
@@ -591,26 +594,37 @@ export async function POST(req: NextRequest) {
     // 2. Extrai links públicos de anúncios (/itm/... ou ebay.us/...)
     const listingUrls = extractEbayListingUrls(input).slice(0, 10);
 
-    // Se o usuário colou o texto da página do pedido e nela havia um "Item ID: 840062942035", também busca a descrição do anúncio!
-    const itemIdsInText = extractEbayItemIds(input);
-    if (listingUrls.length === 0 && itemIdsInText.length > 0) {
-      for (const id of itemIdsInText.slice(0, 3)) {
-        listingUrls.push(`https://www.ebay.co.uk/itm/${id}`);
-      }
-    }
-
     // 3. Analisa texto colado (caso o usuário tenha copiado o texto do pedido ou a descrição do anúncio)
     const textParsed = parseEbayOrderCopiedText(input);
+
+    // Se o usuário colou o texto da página do pedido e nela havia um "Item ID: 840062942035", monta o link do anúncio na loja correta (UK vs US)
+    const itemIdsInText = extractEbayItemIds(input);
+    const defaultItemDomain =
+      textParsed.currency === 'USD' || /\bUnited\s*States\b|\bOrlando\b/i.test(input)
+        ? 'https://www.ebay.com/itm'
+        : 'https://www.ebay.co.uk/itm';
+
+    if (listingUrls.length === 0 && itemIdsInText.length > 0) {
+      for (const id of itemIdsInText.slice(0, 3)) {
+        listingUrls.push(`${defaultItemDomain}/${id}`);
+      }
+    }
 
     const fetchedItems: ParsedEbayCDItem[] = [];
     let fetchedCurrency: CurrencyCode | undefined;
     let fetchedShipping: number | undefined;
     let fetchedBundleTotal: number | undefined;
 
-    // Se o texto colado já continha os álbuns numerados da descrição (ex: 1. Love Metal, 2. Dark Light...), usa direto!
+    // Se o texto colado já continha os álbuns detalhados (e não um título genérico de bundle que precisa buscar a descrição),
+    // evitamos sobrescrever quando já temos os itens completos extraídos do texto do pedido
     const textHasDetailedAlbums =
-      textParsed.items.length >= 2 &&
-      textParsed.items.every((i) => !i.albumTitle.startsWith('CD #'));
+      textParsed.items.length >= 1 &&
+      textParsed.items.every(
+        (i) =>
+          !i.albumTitle.startsWith('CD #') &&
+          !i.albumTitle.startsWith('Vinil #')
+      ) &&
+      extractEbayListingUrls(input).length === 0;
 
     if (!textHasDetailedAlbums && listingUrls.length > 0) {
       const results = await Promise.all(
@@ -628,6 +642,15 @@ export async function POST(req: NextRequest) {
           fetchedBundleTotal = (fetchedBundleTotal || 0) + r.bundleTotalValue;
         }
       }
+    }
+
+    // Garante que se o item veio do texto do pedido com Item number, ele receba o ebayListingUrl correspondente
+    if (textParsed.items.length > 0 && itemIdsInText.length > 0) {
+      textParsed.items.forEach((item, idx) => {
+        if (!item.ebayListingUrl && itemIdsInText[idx]) {
+          item.ebayListingUrl = `${defaultItemDomain}/${itemIdsInText[idx]}`;
+        }
+      });
     }
 
     const combinedItems =

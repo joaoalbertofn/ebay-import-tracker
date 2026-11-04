@@ -183,6 +183,38 @@ describe('calculations.ts — Regras Financeiras e Rateio', () => {
 
     // Sem itens válidos
     expect(generatePackageName([])).toBe('[CD Individual] Novo CD');
+
+    // 1 Vinil Individual
+    expect(
+      generatePackageName([
+        {
+          artist: 'Him',
+          albumTitle: 'Tears On Tape',
+          mediaType: 'vinyl',
+        },
+      ])
+    ).toBe('[Vinil Individual] Him - Tears On Tape');
+  });
+
+  it('deve contabilizar cdItemsCount e vinylItemsCount separadamente', () => {
+    const summary = calculateShipmentSummary(baseShipment, [
+      ...sampleCDs,
+      {
+        id: 'vinyl-1',
+        shipmentId: 'ship-test-1',
+        artist: 'HIM',
+        albumTitle: 'Tears On Tape',
+        unitOriginalValue: 13.0,
+        discCount: 1,
+        mediaType: 'vinyl',
+        isBundle: false,
+        createdAt: '2026-10-29T10:00:00.000Z',
+      },
+    ]);
+
+    expect(summary.totalItemsCount).toBe(4);
+    expect(summary.cdItemsCount).toBe(3);
+    expect(summary.vinylItemsCount).toBe(1);
   });
 
   it('deve formatar valores monetários e peso sem erros de NaN', () => {

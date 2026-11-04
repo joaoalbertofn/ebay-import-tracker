@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { CDItem, CurrencyCode } from '@/types/tracker';
+import { CDItem, CurrencyCode, MediaType } from '@/types/tracker';
 import {
   CURRENCY_META,
   formatBrl,
@@ -61,6 +61,7 @@ interface CDModalProps {
 interface BatchAlbumEntry {
   artist: string;
   albumTitle: string;
+  mediaType?: MediaType;
   discCount: number;
   coverUrl?: string;
   releaseYear?: string;
@@ -82,6 +83,7 @@ export function CDModal({
 }: CDModalProps) {
   const [artist, setArtist] = useState('');
   const [albumTitle, setAlbumTitle] = useState('');
+  const [mediaType, setMediaType] = useState<MediaType>('cd');
   const [discCount, setDiscCount] = useState<string>('1');
   const [isBundle, setIsBundle] = useState(false);
 
@@ -136,6 +138,7 @@ export function CDModal({
     if (editingItem) {
       setArtist(editingItem.artist);
       setAlbumTitle(editingItem.albumTitle);
+      setMediaType(editingItem.mediaType || 'cd');
       setDiscCount(String(editingItem.discCount || 1));
       setIsBundle(editingItem.isBundle);
       setCoverUrl(editingItem.coverUrl || '');
@@ -166,6 +169,7 @@ export function CDModal({
     } else {
       setArtist('');
       setAlbumTitle('');
+      setMediaType('cd');
       setDiscCount('1');
       setIsBundle(false);
       setCoverUrl('');
@@ -363,6 +367,7 @@ export function CDModal({
       if (!editingItem) setIsBundle(false);
       setArtist(item.artist || '');
       setAlbumTitle(item.albumTitle || item.rawTitle || '');
+      setMediaType(item.mediaType || 'cd');
       setDiscCount(String(item.discCount || 1));
       if (item.unitPrice !== undefined && item.unitPrice >= 0) {
         setDirectUnitValue(String(Number(item.unitPrice.toFixed(2))));
@@ -387,12 +392,17 @@ export function CDModal({
       setEbayQuickPasteInput('');
       setEbayImportFeedback({
         type: 'success',
-        text: `CD "${item.artist ? `${item.artist} - ` : ''}${item.albumTitle}" preenchido automaticamente!`,
+        text: `${item.mediaType === 'vinyl' ? 'Vinil (LP)' : 'CD'} "${
+          item.artist ? `${item.artist} - ` : ''
+        }${item.albumTitle}" preenchido automaticamente!`,
       });
     } else if (data.items && data.items.length > 1 && !editingItem) {
       setIsBundle(true);
       setEnableBatchCreate(true);
       setBundleTotalQuantity(String(data.items.length));
+      if (data.items[0]?.mediaType) {
+        setMediaType(data.items[0].mediaType);
+      }
       if (data.bundleTotalValue !== undefined && data.bundleTotalValue > 0) {
         setBundleTotalValue(String(Number(data.bundleTotalValue.toFixed(2))));
       } else {
@@ -407,6 +417,7 @@ export function CDModal({
       const entries: BatchAlbumEntry[] = data.items.map((item) => ({
         artist: item.artist || '',
         albumTitle: item.albumTitle || item.rawTitle || '',
+        mediaType: item.mediaType || 'cd',
         discCount: item.discCount || 1,
         coverUrl: item.coverUrl,
         releaseYear: item.releaseYear,
@@ -495,28 +506,35 @@ export function CDModal({
       );
 
       const itemsToCreate: Omit<CDItem, 'id' | 'createdAt'>[] =
-        validEntries.map((entry, idx) => ({
-          shipmentId,
-          currency: activeCurrency,
-          artist:
-            entry.artist.trim() || artist.trim() || 'Artista Desconhecido',
-          albumTitle: entry.albumTitle.trim() || `CD #${idx + 1} do Bundle`,
-          discCount: Math.max(1, Number(entry.discCount) || 1),
-          isBundle: true,
-          bundleId: bundleId || `bundle-${Date.now()}`,
-          bundleName: bundleName.trim() || `Bundle (${effectiveQty} CDs)`,
-          bundleTotalValue: parsedBundleTotal,
-          bundleTotalQuantity: effectiveQty,
-          bundleInternalShipping: localShippingNum,
-          unitInternalShipping: batchUnitShip,
-          localTrackingCode: localTrackingCode.trim().toUpperCase(),
-          ebayOrderId: finalOrderId,
-          ebayOrderUrl: finalOrderUrl,
-          ebayListingUrl: entry.ebayListingUrl || finalListingUrl,
-          unitOriginalValue: batchUnitVal,
-          coverUrl: entry.coverUrl,
-          releaseYear: entry.releaseYear,
-        }));
+        validEntries.map((entry, idx) => {
+          const rowMedia: MediaType = entry.mediaType || mediaType || 'cd';
+          const rowLabel = rowMedia === 'vinyl' ? 'Vinil' : 'CD';
+          return {
+            shipmentId,
+            mediaType: rowMedia,
+            currency: activeCurrency,
+            artist:
+              entry.artist.trim() || artist.trim() || 'Artista Desconhecido',
+            albumTitle:
+              entry.albumTitle.trim() || `${rowLabel} #${idx + 1} do Bundle`,
+            discCount: Math.max(1, Number(entry.discCount) || 1),
+            isBundle: true,
+            bundleId: bundleId || `bundle-${Date.now()}`,
+            bundleName:
+              bundleName.trim() || `Bundle (${effectiveQty} ${rowLabel}s)`,
+            bundleTotalValue: parsedBundleTotal,
+            bundleTotalQuantity: effectiveQty,
+            bundleInternalShipping: localShippingNum,
+            unitInternalShipping: batchUnitShip,
+            localTrackingCode: localTrackingCode.trim().toUpperCase(),
+            ebayOrderId: finalOrderId,
+            ebayOrderUrl: finalOrderUrl,
+            ebayListingUrl: entry.ebayListingUrl || finalListingUrl,
+            unitOriginalValue: batchUnitVal,
+            coverUrl: entry.coverUrl,
+            releaseYear: entry.releaseYear,
+          };
+        });
 
       onSaveItems(itemsToCreate);
       onClose();
@@ -527,6 +545,7 @@ export function CDModal({
 
     const singleItem: Omit<CDItem, 'id' | 'createdAt'> = {
       shipmentId,
+      mediaType,
       currency: activeCurrency,
       artist: artist.trim(),
       albumTitle: albumTitle.trim(),
@@ -647,33 +666,77 @@ export function CDModal({
               )}
             </div>
 
-            {/* SELETOR EM ABAS (Segmented Control): CD Individual vs Lote / Bundle */}
-            <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800">
-              <button
-                type="button"
-                onClick={() => handleSwitchMode(false)}
-                className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-semibold transition ${
-                  !isBundle
-                    ? 'bg-purple-600 text-white shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Disc3 className="w-4 h-4 shrink-0" />
-                <span>CD Individual / Box</span>
-              </button>
+            {/* SELETOR RÁPIDO DE MÍDIA (CD vs VINIL/LP) + MODO (INDIVIDUAL vs BUNDLE) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMediaType('cd');
+                    setBatchEntries((prev) =>
+                      prev.map((e) => ({ ...e, mediaType: 'cd' }))
+                    );
+                  }}
+                  className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    mediaType === 'cd'
+                      ? 'bg-purple-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Disc3 className="w-4 h-4 shrink-0" />
+                  <span>💿 CD (~130g)</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => handleSwitchMode(true)}
-                className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-semibold transition ${
-                  isBundle
-                    ? 'bg-purple-600 text-white shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Layers className="w-4 h-4 shrink-0" />
-                <span>Lote / Bundle (2+ CDs)</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMediaType('vinyl');
+                    setBatchEntries((prev) =>
+                      prev.map((e) => ({ ...e, mediaType: 'vinyl' }))
+                    );
+                  }}
+                  className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    mediaType === 'vinyl'
+                      ? 'bg-amber-500 text-slate-950 shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Disc3 className="w-4 h-4 shrink-0" />
+                  <span>⚫ Vinil / LP (300g/500g)</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => handleSwitchMode(false)}
+                  className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                    !isBundle
+                      ? 'bg-indigo-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Disc3 className="w-4 h-4 shrink-0" />
+                  <span>
+                    {mediaType === 'vinyl' ? 'LP Individual' : 'CD Individual'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSwitchMode(true)}
+                  className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                    isBundle
+                      ? 'bg-indigo-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Layers className="w-4 h-4 shrink-0" />
+                  <span>
+                    Lote / Bundle (2+ {mediaType === 'vinyl' ? 'LPs' : 'CDs'})
+                  </span>
+                </button>
+              </div>
             </div>
 
             {/* Se NÃO estiver no modo Batch de vários álbuns, exibe os campos normais de Artista / Álbum / Nº Discos + Busca de Capa */}
@@ -711,9 +774,13 @@ export function CDModal({
                   <div className="sm:col-span-2">
                     <label
                       className="block text-xs font-medium text-slate-300 mb-1.5"
-                      title="Se for um CD Duplo ou Box Set, informe quantos discos físicos vêm nele"
+                      title={
+                        mediaType === 'vinyl'
+                          ? '1 LP = ~300g | 2 LPs = ~500g'
+                          : 'Se for um CD Duplo ou Box Set, informe quantos discos físicos vêm nele'
+                      }
                     >
-                      Nº Discos
+                      {mediaType === 'vinyl' ? 'Nº LPs' : 'Nº Discos'}
                     </label>
                     <input
                       type="number"

@@ -18,7 +18,12 @@ import {
 } from 'lucide-react';
 import { Shipment, ShipmentStatus, ShipmentSummary } from '@/types/tracker';
 import { STATUS_LABELS } from '@/components/ShipmentModal';
-import { formatBrl, formatWeightKg } from '@/lib/formatters';
+import {
+  CURRENCY_HUB_INFO,
+  formatBrl,
+  formatMediaCountLabel,
+  formatWeightKg,
+} from '@/lib/formatters';
 
 interface PackageSidebarProps {
   mobileActivePane: 'list' | 'detail';
@@ -274,13 +279,31 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
                     </span>
                   </div>
 
-                  {/* Linha 2: Qtd de CDs + Peso (kg) + Modo + Custo Total BRL */}
+                  {/* Linha 2: Hub + Qtd de CDs/Vinis + Peso (kg) + Modo + Custo Total BRL */}
                   <div className="mt-2.5 pt-2 border-t border-slate-800/70 flex items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-300">
+                      <span
+                        title={CURRENCY_HUB_INFO[ship.currency]?.fullHub || ship.currency}
+                        className="inline-flex items-center gap-1 rounded bg-slate-900 border border-slate-700/80 px-1.5 py-0.5 text-[10px] font-mono text-slate-300"
+                      >
+                        <span>{CURRENCY_HUB_INFO[ship.currency]?.flag}</span>
+                        <span>{ship.currency}</span>
+                      </span>
+
                       <span className="inline-flex items-center gap-1.5">
-                        <Disc3 className="w-3.5 h-3.5 text-purple-400" />
-                        <strong>{summary?.totalItemsCount || 0}</strong>{' '}
-                        {(summary?.totalItemsCount || 0) === 1 ? 'CD' : 'CDs'}
+                        <Disc3
+                          className={`w-3.5 h-3.5 ${
+                            (summary?.vinylItemsCount || 0) > 0
+                              ? 'text-amber-400'
+                              : 'text-purple-400'
+                          }`}
+                        />
+                        <strong>
+                          {formatMediaCountLabel(
+                            summary?.cdItemsCount || 0,
+                            summary?.vinylItemsCount || 0
+                          )}
+                        </strong>
                       </span>
 
                       {ship.weightKg && ship.weightKg > 0 && (

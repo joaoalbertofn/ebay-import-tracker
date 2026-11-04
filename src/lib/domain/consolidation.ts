@@ -2,6 +2,7 @@ import {
   CDItem,
   CurrencyCode,
   ConsolidationMode,
+  MediaType,
   Shipment,
 } from '@/types/tracker';
 import { CURRENCY_META, getItemUnitInternalShipping } from '@/lib/calculations';
@@ -171,6 +172,7 @@ export interface ConsolidationExecutionParams {
     id?: string;
     artist: string;
     albumTitle: string;
+    mediaType?: MediaType;
     unitPrice?: number;
     discCount: number;
     coverUrl?: string;
@@ -243,11 +245,13 @@ export function executeConsolidation(
 
     newCdEntries.forEach((entry, idx) => {
       const cleanArtist = entry.artist.trim() || targetShipmentData.name;
+      const resolvedMediaType: MediaType = entry.mediaType || 'cd';
+      const itemLabel = resolvedMediaType === 'vinyl' ? 'Vinil' : 'CD';
       const cleanAlbum =
         entry.albumTitle.trim() ||
         (qty === 1
           ? 'Álbum'
-          : `CD #${idx + 1} do Lote (${targetShipmentData.name})`);
+          : `${itemLabel} #${idx + 1} do Lote (${targetShipmentData.name})`);
       const itemUnitVal =
         entry.unitPrice !== undefined
           ? Number(entry.unitPrice.toFixed(4))
@@ -258,6 +262,7 @@ export function executeConsolidation(
           ...entry,
           artist: cleanArtist,
           albumTitle: cleanAlbum,
+          mediaType: resolvedMediaType,
           unitPrice: itemUnitVal,
           discCount: entry.discCount || 1,
         });
@@ -265,6 +270,7 @@ export function executeConsolidation(
         newlyCreatedCDs.push({
           id: `cd-${now}-${idx}`,
           shipmentId: targetShipmentId,
+          mediaType: resolvedMediaType,
           currency: targetShipmentData.currency,
           artist: cleanArtist,
           albumTitle: cleanAlbum,
@@ -485,6 +491,7 @@ export function executeConsolidation(
         const edited = updatedEntriesById.get(cd.id)!;
         return {
           ...cd,
+          mediaType: edited.mediaType || cd.mediaType || 'cd',
           currency: targetShipmentData.currency,
           isConsolidated: isTargetConsolidated,
           artist: edited.artist,

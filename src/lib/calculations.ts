@@ -2,11 +2,14 @@ import {
   CDItem,
   CalculatedCDItem,
   CurrencyCode,
+  MediaType,
   Shipment,
   ShipmentCalculationSummary,
 } from '@/types/tracker';
 import {
+  CURRENCY_HUB_INFO,
   formatBrl,
+  formatMediaCountLabel,
   formatOriginalCurrency,
   formatWeightKg,
   getTodayLocalIsoDate,
@@ -14,7 +17,9 @@ import {
 import { fetchLiveExchangeRate } from '@/lib/services/exchangeRateService';
 
 export {
+  CURRENCY_HUB_INFO,
   formatBrl,
+  formatMediaCountLabel,
   formatOriginalCurrency,
   formatWeightKg,
   getTodayLocalIsoDate,
@@ -42,10 +47,10 @@ export const CURRENCY_META: Record<
   },
   USD: {
     symbol: 'US$',
-    label: 'Dólar Americano (USD)',
+    label: 'Dólar Americano (USD - UsCloser)',
     defaultRate: 5.75,
-    defaultGroupOnlyFee: 4.0,
-    defaultUnpackAndRepackFee: 8.5,
+    defaultGroupOnlyFee: 0.0, // Consolidação gratuita no UsCloser
+    defaultUnpackAndRepackFee: 2.5, // Taxa de serviço diluída por pacote no UsCloser
   },
   EUR: {
     symbol: '€',
@@ -124,6 +129,10 @@ export function calculateShipmentSummary(
     preFilteredShipmentItems ??
     allItems.filter((item) => item.shipmentId === shipment.id);
   const totalItemsCount = shipmentItems.length;
+  const vinylItemsCount = shipmentItems.filter(
+    (item) => item.mediaType === 'vinyl'
+  ).length;
+  const cdItemsCount = totalItemsCount - vinylItemsCount;
   const totalPhysicalDiscsCount = shipmentItems.reduce(
     (acc, item) => acc + (Number(item.discCount) || 1),
     0
@@ -221,6 +230,8 @@ export function calculateShipmentSummary(
     shipment,
     items: calculatedItems,
     totalItemsCount,
+    cdItemsCount,
+    vinylItemsCount,
     totalPhysicalDiscsCount,
     totalItemsOriginal,
     totalItemsBrl,
@@ -278,44 +289,56 @@ export function calculateAllShipmentSummaries(
 
 
 /**
- * Gera automaticamente o Nome Identificador do Pacote a partir dos CDs pertencentes a ele:
+ * Gera automaticamente o Nome Identificador do Pacote a partir dos itens pertencentes a ele:
  * - 1 CD: "[CD Individual] Artista - Álbum"
- * - 2+ CDs: "[Lote] Artista 1 - Artista 2 - Artista 3" (artistas únicos na ordem em que aparecem)
+ * - 1 Vinil: "[Vinil Individual] Artista - Álbum"
+ * - 2+ Itens: "[Lote] Artista 1 - Artista 2 - Artista 3" (artistas únicos na ordem em que aparecem)
  */
 export function generatePackageName(
-  items: Array<{ artist?: string; albumTitle?: string }>,
+  items: Array<{ artist?: string; albumTitle?: string; mediaType?: MediaType }>,
   fallbackName?: string
 ): string {
   const validItems = items.filter(
     (i) => (i.artist || '').trim() !== '' || (i.albumTitle || '').trim() !== ''
   );
 
+  const isSingleVinyl =
+    items.length === 1 && items[0]?.mediaType === 'vinyl';
+  const singlePrefix = isSingleVinyl ? '[Vinil Individual]' : '[CD Individual]';
+  const singleDefaultFallback = isSingleVinyl
+    ? '[Vinil Individual] Novo Vinil'
+    : '[CD Individual] Novo CD';
+
   if (validItems.length === 0) {
     if (items.length > 1) {
-      return `[Lote] ${items.length} CDs`;
+      const allVinyl = items.every((i) => i.mediaType === 'vinyl');
+      return allVinyl ? `[Lote] ${items.length} Vinis` : `[Lote] ${items.length} CDs`;
     }
-    return fallbackName?.trim() || '[CD Individual] Novo CD';
+    return fallbackName?.trim() || singleDefaultFallback;
   }
 
   if (items.length === 1 && validItems.length === 1) {
     const artist = (validItems[0].artist || '').trim();
     const album = (validItems[0].albumTitle || '').trim();
     const isGenericAlbum =
-      !album || album === 'Álbum' || album.startsWith('CD #');
+      !album ||
+      album === 'Álbum' ||
+      album.startsWith('CD #') ||
+      album.startsWith('Vinil #');
 
     if (artist && !isGenericAlbum) {
-      return `[CD Individual] ${artist} - ${album}`;
+      return `${singlePrefix} ${artist} - ${album}`;
     }
     if (artist) {
-      return `[CD Individual] ${artist}`;
+      return `${singlePrefix} ${artist}`;
     }
     if (album) {
-      return `[CD Individual] ${album}`;
+      return `${singlePrefix} ${album}`;
     }
-    return '[CD Individual] Novo CD';
+    return singleDefaultFallback;
   }
 
-  // 2 ou mais CDs -> [Lote] Artista 1 - Artista 2 - Artista 3
+  // 2 ou mais itens -> [Lote] Artista 1 - Artista 2 - Artista 3
   const uniqueArtists: string[] = [];
   const seenLower = new Set<string>();
 
@@ -324,7 +347,8 @@ export function generatePackageName(
     if (
       !artist ||
       artist.startsWith('[Lote]') ||
-      artist.startsWith('[CD Individual]')
+      artist.startsWith('[CD Individual]') ||
+      artist.startsWith('[Vinil Individual]')
     ) {
       continue;
     }
@@ -339,5 +363,6 @@ export function generatePackageName(
     return `[Lote] ${uniqueArtists.join(' - ')}`;
   }
 
-  return `[Lote] ${items.length} CDs`;
+  const allVinyl = items.every((i) => i.mediaType === 'vinyl');
+  return allVinyl ? `[Lote] ${items.length} Vinis` : `[Lote] ${items.length} CDs`;
 }

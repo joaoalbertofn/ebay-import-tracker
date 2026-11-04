@@ -1,5 +1,7 @@
 export type CurrencyCode = 'GBP' | 'USD' | 'EUR' | 'JPY' | 'BRL';
 
+export type MediaType = 'cd' | 'vinyl';
+
 export type ShipmentStatus =
   | 'comprado'
   | 'no_redirecionador'
@@ -40,6 +42,7 @@ export interface Shipment {
 export interface CDItem {
   id: string;
   shipmentId: string; // ID do Pacote ao qual pertence
+  mediaType?: MediaType; // 'cd' (padrão) ou 'vinyl' (Disco de Vinil / LP)
   currency?: CurrencyCode; // Moeda da compra no eBay
   artist: string;
   albumTitle: string;
@@ -76,7 +79,9 @@ export type ShipmentSummary = ShipmentCalculationSummary;
 export interface ShipmentCalculationSummary {
   shipment: Shipment;
   items: CalculatedCDItem[];
-  totalItemsCount: number; // Quantidade de itens (registros de CD/Box) cadastrados no pacote
+  totalItemsCount: number; // Quantidade de itens (registros de CD/Vinil/Box) cadastrados no pacote
+  cdItemsCount: number; // Quantidade de registros que são CD
+  vinylItemsCount: number; // Quantidade de registros que são Vinil (LP)
   totalPhysicalDiscsCount: number; // Soma de discCount
   // Custos Diretos (CDs)
   totalItemsOriginal: number; // Soma dos unitOriginalValue na moeda original

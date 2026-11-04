@@ -1,6 +1,7 @@
 import {
   ConsolidationMode,
   CurrencyCode,
+  MediaType,
   Shipment,
 } from '@/types/tracker';
 import { CURRENCY_META, MG_TAX_FACTOR } from '@/lib/calculations';
@@ -26,6 +27,27 @@ export const WEIGHT_TIER_OPTIONS: Array<{
 ];
 
 export const DEFAULT_ESTIMATED_GRAMS_PER_DISC = 130;
+export const DEFAULT_VINYL_SINGLE_LP_GRAMS = 300;
+export const DEFAULT_VINYL_EXTRA_LP_GRAMS = 200;
+
+/**
+ * Calcula o peso líquido estimado (em gramas) de um item individual (CD ou Disco de Vinil):
+ * - CD: 130g por item
+ * - Vinil (LP): 300g para 1 LP, 500g para 2 LPs (+200g por LP adicional no mesmo álbum)
+ */
+export function getEstimatedItemWeightGrams(
+  item: { mediaType?: MediaType; discCount?: number },
+  cdGrams: number = DEFAULT_ESTIMATED_GRAMS_PER_DISC
+): number {
+  if (item.mediaType === 'vinyl') {
+    const discs = Math.max(1, Number(item.discCount) || 1);
+    return (
+      DEFAULT_VINYL_SINGLE_LP_GRAMS +
+      (discs - 1) * DEFAULT_VINYL_EXTRA_LP_GRAMS
+    );
+  }
+  return cdGrams;
+}
 
 const DEFAULT_INTL_SHIPPING_BY_CURRENCY: Record<
   CurrencyCode,
@@ -44,6 +66,7 @@ export interface EvaluatedForwarderPackage {
   name: string;
   status: Shipment['status'];
   cdCount: number;
+  vinylCount: number;
   physicalDiscCount: number;
   weightKg: number;
   rawRegisteredWeightKg?: number;
@@ -61,6 +84,7 @@ export interface ConsolidationSuggestion {
   cdIds: string[];
   packageCount: number;
   totalCds: number;
+  totalVinyls: number;
   totalPhysicalDiscs: number;
   totalWeightKg: number;
   totalSavedPackagingWeightKg: number;
@@ -96,6 +120,7 @@ export interface ConsolidationAdvisorOptions {
   includePurchasedInTransit?: boolean;
   mode?: Exclude<ConsolidationMode, 'direct'>;
   currency?: CurrencyCode;
+  filterByCurrency?: boolean;
   exchangeRate?: number;
   groupOnlyFeeUnit?: number;
   unpackAndRepackFeeUnit?: number;
@@ -176,6 +201,9 @@ export function evaluateForwarderPackage(
   mode: Exclude<ConsolidationMode, 'direct'> = 'unpack_and_repack'
 ): EvaluatedForwarderPackage {
   const cdCount = option.items.length;
+  const vinylCount = option.items.filter(
+    (item) => item.mediaType === 'vinyl'
+  ).length;
   const physicalDiscCount = option.items.reduce(
     (acc, item) => acc + Math.max(1, Number(item.discCount) || 1),
     0
@@ -187,8 +215,13 @@ export function evaluateForwarderPackage(
     ? Number(rawWeight.toFixed(2))
     : undefined;
 
+  const unpackedEstimateGrams = option.items.reduce(
+    (acc, item) =>
+      acc + getEstimatedItemWeightGrams(item, estimatedGramsPerDisc),
+    0
+  );
   const unpackedEstimateKg = Number(
-    Math.max(0.1, (cdCount * estimatedGramsPerDisc) / 1000).toFixed(2)
+    Math.max(0.1, unpackedEstimateGrams / 1000).toFixed(2)
   );
 
   let weightKg: number;
@@ -218,6 +251,7 @@ export function evaluateForwarderPackage(
     name: option.shipment.name,
     status: option.shipment.status,
     cdCount,
+    vinylCount,
     physicalDiscCount,
     weightKg,
     rawRegisteredWeightKg,
@@ -253,7 +287,11 @@ export function generateConsolidationAdvisorReport(
     options.estimatedGramsPerDisc ?? DEFAULT_ESTIMATED_GRAMS_PER_DISC;
   const maxResults = options.maxResults ?? 3;
 
-  const allEvaluated = forwarderPackages
+  const filteredPackages = options.filterByCurrency
+    ? forwarderPackages.filter((fp) => fp.shipment.currency === currency)
+    : forwarderPackages;
+
+  const allEvaluated = filteredPackages
     .filter((fp) => fp.items.length > 0)
     .map((fp) => evaluateForwarderPackage(fp, estimatedGramsPerDisc, mode));
 
@@ -339,6 +377,7 @@ export function generateConsolidationAdvisorReport(
   ): Omit<ConsolidationSuggestion, 'rank' | 'badgeLabel'> => {
     const packageCount = subset.length;
     const totalCds = subset.reduce((acc, p) => acc + p.cdCount, 0);
+    const totalVinyls = subset.reduce((acc, p) => acc + p.vinylCount, 0);
     const totalPhysicalDiscs = subset.reduce(
       (acc, p) => acc + p.physicalDiscCount,
       0
@@ -458,6 +497,7 @@ export function generateConsolidationAdvisorReport(
       cdIds,
       packageCount,
       totalCds,
+      totalVinyls,
       totalPhysicalDiscs,
       totalWeightKg,
       totalSavedPackagingWeightKg,

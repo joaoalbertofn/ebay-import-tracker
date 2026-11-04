@@ -114,6 +114,16 @@ export function validateTrackerPayload(payload: unknown): ValidationResult {
       };
     }
     if (
+      cd.mediaType !== undefined &&
+      cd.mediaType !== 'cd' &&
+      cd.mediaType !== 'vinyl'
+    ) {
+      return {
+        success: false,
+        error: `CDItem "${cd.id}" tem mediaType inválido: "${String(cd.mediaType)}".`,
+      };
+    }
+    if (
       typeof cd.unitOriginalValue !== 'number' ||
       !Number.isFinite(cd.unitOriginalValue)
     ) {
