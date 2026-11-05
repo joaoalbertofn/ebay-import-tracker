@@ -66,6 +66,7 @@ interface PackageDetailViewProps {
   onRevertPackageToSingle: (shipment: Shipment) => void;
   onApplyMgTaxEstimate: (summary: ShipmentSummary) => void;
   onQuickStatusChange: (shipmentId: string, status: ShipmentStatus) => void;
+  onSaveTrackingCode?: (shipmentId: string, trackingCode: string) => void;
   onSavePackageTitle: (shipment: Shipment, newTitle: string) => void;
   onTogglePackageCustomNameLock: (shipment: Shipment) => void;
   onSavePackageWeight: (shipmentId: string, weightKg: number | undefined) => void;
@@ -95,6 +96,7 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
   onRevertPackageToSingle,
   onApplyMgTaxEstimate,
   onQuickStatusChange,
+  onSaveTrackingCode,
   onSavePackageTitle,
   onTogglePackageCustomNameLock,
   onSavePackageWeight,
@@ -512,34 +514,81 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                   </button>
                 )}
 
-                {selectedSummary.shipment.internationalTrackingCode && (
-                  <a
-                    href={`https://portalimportador.correios.com.br/pages/pesquisarRemessaImportador/pesquisarRemessaImportador.jsf#track=${encodeURIComponent(
-                      selectedSummary.shipment.internationalTrackingCode.trim()
-                    )}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={() => {
-                      const code =
-                        selectedSummary.shipment.internationalTrackingCode?.trim();
-                      if (code && navigator.clipboard?.writeText) {
-                        navigator.clipboard
-                          .writeText(code)
-                          .then(() => {
-                            showToast(
-                              `Código ${code} copiado! Cole (Cmd+V / Ctrl+V) na busca dos Correios.`
+                {selectedSummary.shipment.internationalTrackingCode ? (
+                  <div className="flex items-center gap-1">
+                    <a
+                      href={`https://portalimportador.correios.com.br/pages/pesquisarRemessaImportador/pesquisarRemessaImportador.jsf#track=${encodeURIComponent(
+                        selectedSummary.shipment.internationalTrackingCode.trim()
+                      )}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={() => {
+                        const code =
+                          selectedSummary.shipment.internationalTrackingCode?.trim();
+                        if (code && navigator.clipboard?.writeText) {
+                          navigator.clipboard
+                            .writeText(code)
+                            .then(() => {
+                              showToast(
+                                `Código ${code} copiado! Cole (Cmd+V / Ctrl+V) na busca dos Correios.`
+                              );
+                            })
+                            .catch(() => {});
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 rounded-md bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 font-mono text-[11px] text-sky-300 hover:bg-sky-500/25 transition whitespace-nowrap cursor-pointer"
+                      title="Abrir Minhas Importações (Correios) com o código de rastreio"
+                    >
+                      <Truck className="w-3 h-3 text-sky-400" />
+                      {selectedSummary.shipment.internationalTrackingCode}
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                    {onSaveTrackingCode && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentCode =
+                            selectedSummary.shipment.internationalTrackingCode || '';
+                          const newCode = window.prompt(
+                            'Editar código de rastreamento para o Brasil:',
+                            currentCode
+                          );
+                          if (newCode !== null && newCode.trim()) {
+                            onSaveTrackingCode(
+                              selectedSummary.shipment.id,
+                              newCode
                             );
-                          })
-                          .catch(() => {});
-                      }
-                    }}
-                    className="inline-flex items-center gap-1 rounded-md bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 font-mono text-[11px] text-sky-300 hover:bg-sky-500/25 transition whitespace-nowrap"
-                    title="Abrir Minhas Importações (Correios) com o código de rastreio"
-                  >
-                    <Truck className="w-3 h-3" />
-                    {selectedSummary.shipment.internationalTrackingCode}
-                    <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
+                          }
+                        }}
+                        className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                        title="Editar código de rastreamento"
+                      >
+                        <Edit3 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  onSaveTrackingCode && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const code = window.prompt(
+                          'Informe o código de rastreamento para o Brasil (ex: LT497056434GB):'
+                        );
+                        if (code && code.trim()) {
+                          onSaveTrackingCode(
+                            selectedSummary.shipment.id,
+                            code
+                          );
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 rounded-md bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 px-2 py-0.5 font-mono text-[11px] text-sky-300 transition whitespace-nowrap cursor-pointer"
+                      title="Adicionar código de rastreio para o Brasil e colocar Em Trânsito"
+                    >
+                      <Truck className="w-3 h-3 text-sky-400" />
+                      <span>+ Adicionar Rastreio Brasil</span>
+                    </button>
+                  )
                 )}
 
                 {(selectedSummary.shipment.ebayOrderUrl ||

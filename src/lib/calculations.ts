@@ -5,6 +5,7 @@ import {
   MediaType,
   Shipment,
   ShipmentCalculationSummary,
+  ShipmentStatus,
 } from '@/types/tracker';
 import {
   CURRENCY_HUB_INFO,
@@ -296,8 +297,21 @@ export function calculateAllShipmentSummaries(
  */
 export function generatePackageName(
   items: Array<{ artist?: string; albumTitle?: string; mediaType?: MediaType }>,
-  fallbackName?: string
+  fallbackName?: string,
+  options?: { trackingCode?: string; status?: ShipmentStatus }
 ): string {
+  // Se o pacote estiver Em Trânsito (ou Tributado/Entregue) e possuir código de rastreamento para o Brasil,
+  // o nome/identificador do pacote passa a ser o próprio código de rastreio
+  if (
+    options?.trackingCode &&
+    options.trackingCode.trim().length > 0 &&
+    (options.status === 'em_transito' ||
+      options.status === 'tributado' ||
+      options.status === 'entregue')
+  ) {
+    return options.trackingCode.trim().toUpperCase();
+  }
+
   const validItems = items.filter(
     (i) => (i.artist || '').trim() !== '' || (i.albumTitle || '').trim() !== ''
   );

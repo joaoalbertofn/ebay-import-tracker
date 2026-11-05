@@ -269,4 +269,74 @@ describe('consolidationAdvisor', () => {
     expect(usReport.suggestions[0].totalVinyls).toBe(2);
     expect(usReport.suggestions[0].totalWeightKg).toBe(0.8); // 300g + 500g = 0.80kg
   });
+
+  it('calcula o frete internacional pelo peso real em degraus de 100g e compara ForwardVia vs Send2Hub', () => {
+    // 5 pacotes totalizando ~0,78 kg pós-desempacotar
+    const pkgs = [
+      makePackage('p1', 'Pkg 1', 'comprado', [5], 0.13),
+      makePackage('p2', 'Pkg 2', 'comprado', [5], 0.13),
+      makePackage('p3', 'Pkg 3', 'comprado', [5], 0.13),
+      makePackage('p4', 'Pkg 4', 'comprado', [5], 0.13),
+      makePackage('p5', 'Pkg 5', 'comprado', [5, 5], 0.26), // 2 CDs
+    ];
+
+    // Simulação ForwardVia (Modo Desempacotar: 5 * £3.60 = £18.00)
+    const reportFwdUnpack = generateConsolidationAdvisorReport(pkgs, {
+      targetMaxWeightKg: 1.0,
+      includePurchasedInTransit: true,
+      mode: 'unpack_and_repack',
+      forwarderService: 'forwardvia',
+      currency: 'GBP',
+      exchangeRate: 7.35,
+      unpackAndRepackFeeUnit: 3.6,
+      groupOnlyFeeUnit: 2.48,
+    });
+
+    const sugFwd = reportFwdUnpack.suggestions[0];
+    expect(sugFwd.packageCount).toBe(5);
+    expect(sugFwd.totalCds).toBe(6);
+    expect(sugFwd.totalWeightKg).toBe(0.78);
+    expect(sugFwd.billedWeightKg).toBe(0.8); // Degrau 0,8 kg
+    expect(sugFwd.forwarderFeeOriginal).toBe(18.0); // 5 * 3.60 = £18.00
+    expect(sugFwd.estimatedIntlShippingOriginal).toBe(34.01); // 22.255 + 14.697 * 0.8 = £34.01 (e NÃO £36.95 ou £37.44)
+    expect(sugFwd.forwarderFeePerCdOriginal).toBe(3.0); // 18 / 6 CDs = £3.00/CD
+    expect(sugFwd.intlShippingPerCdOriginal).toBe(5.67); // 34.01 / 6 CDs = £5.67/CD
+    expect(sugFwd.alternativeForwarderComparison).toBeDefined();
+    expect(sugFwd.alternativeForwarderComparison?.service).toBe('send2hub');
+    expect(sugFwd.alternativeForwarderComparison?.forwarderFeeOriginal).toBe(0); // Send2Hub taxa grátis
+    expect(sugFwd.alternativeForwarderComparison?.intlShippingOriginal).toBe(25.71); // Send2Hub frete 25.71
+    expect(sugFwd.alternativeForwarderComparison?.totalRedirOriginal).toBe(25.71);
+    expect(sugFwd.alternativeForwarderComparison?.savingsOriginal).toBe(26.3); // (18 + 34.01) - 25.71 = £26.30
+
+    // Simulação ForwardVia (Modo Só Agrupar: 5 * £2.48 = £12.40)
+    const reportFwdGroup = generateConsolidationAdvisorReport(pkgs, {
+      targetMaxWeightKg: 1.0,
+      includePurchasedInTransit: true,
+      mode: 'group_only',
+      forwarderService: 'forwardvia',
+      currency: 'GBP',
+      exchangeRate: 7.35,
+      unpackAndRepackFeeUnit: 3.6,
+      groupOnlyFeeUnit: 2.48,
+    });
+
+    const sugGroup = reportFwdGroup.suggestions[0];
+    expect(sugGroup.forwarderFeeOriginal).toBe(12.4); // 5 * 2.48 = £12.40
+
+    // Simulação Direta no Send2Hub (Consolidação Grátis: £0.00, Frete: £25.71)
+    const reportSend2Hub = generateConsolidationAdvisorReport(pkgs, {
+      targetMaxWeightKg: 1.0,
+      includePurchasedInTransit: true,
+      mode: 'unpack_and_repack',
+      forwarderService: 'send2hub',
+      currency: 'GBP',
+      exchangeRate: 7.35,
+    });
+
+    const sugSend2Hub = reportSend2Hub.suggestions[0];
+    expect(sugSend2Hub.forwarderFeeOriginal).toBe(0); // Taxa grátis no Send2Hub
+    expect(sugSend2Hub.estimatedIntlShippingOriginal).toBe(25.71);
+    expect(sugSend2Hub.alternativeForwarderComparison?.service).toBe('forwardvia');
+    expect(sugSend2Hub.alternativeForwarderComparison?.savingsOriginal).toBe(26.3);
+  });
 });

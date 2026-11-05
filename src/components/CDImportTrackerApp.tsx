@@ -71,7 +71,7 @@ export default function CDImportTrackerApp() {
   const [activeModule, setActiveModule] = useState<'tracker' | 'radar'>(
     'tracker'
   );
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
   // Aba principal: 'packages' (Master/Detail por pacotes) ou 'collection' (Visão Global de todos os CDs)
   const [activeMainTab, setActiveMainTab] = useState<'packages' | 'collection'>(
@@ -722,21 +722,72 @@ export default function CDImportTrackerApp() {
     shipmentId: string,
     newStatus: ShipmentStatus
   ) => {
+    const targetShipment = shipments.find((s) => s.id === shipmentId);
+    if (!targetShipment) return;
+
+    // Regra: Mudar para Em Trânsito requer código de rastreio para o Brasil
+    if (newStatus === 'em_transito') {
+      const existingCode = targetShipment.internationalTrackingCode?.trim();
+      if (!existingCode) {
+        const inputCode = window.prompt(
+          'Para mudar o status para "Em Trânsito", informe o código de rastreamento para o Brasil (ex: LT497056434GB):'
+        );
+        if (!inputCode || !inputCode.trim()) {
+          showToast(
+            'O status "Em Trânsito" requer o código de rastreamento para o Brasil.'
+          );
+          return;
+        }
+        const cleanCode = inputCode.trim().toUpperCase();
+        setShipments((prev) =>
+          prev.map((s) =>
+            s.id === shipmentId
+              ? {
+                  ...s,
+                  status: 'em_transito',
+                  internationalTrackingCode: cleanCode,
+                  name: s.isCustomName ? s.name : cleanCode,
+                }
+              : s
+          )
+        );
+        setCdItems((prev) =>
+          prev.map((cd) =>
+            cd.shipmentId === shipmentId
+              ? { ...cd, isConsolidated: true }
+              : cd
+          )
+        );
+        showToast(`Status atualizado para Em Trânsito (${cleanCode})!`);
+        return;
+      }
+    }
+
     const isRevertingToSingle =
       newStatus === 'comprado' || newStatus === 'no_redirecionador';
 
     setShipments((prev) =>
-      prev.map((s) =>
-        s.id === shipmentId
-          ? {
-              ...s,
-              status: newStatus,
-              consolidationMode: isRevertingToSingle
-                ? 'direct'
-                : s.consolidationMode,
-            }
-          : s
-      )
+      prev.map((s) => {
+        if (s.id !== shipmentId) return s;
+        const willBeInTransit =
+          newStatus === 'em_transito' ||
+          newStatus === 'tributado' ||
+          newStatus === 'entregue';
+        const hasTracking = Boolean(s.internationalTrackingCode?.trim());
+        const nextName =
+          !s.isCustomName && willBeInTransit && hasTracking
+            ? s.internationalTrackingCode!.trim().toUpperCase()
+            : s.name;
+
+        return {
+          ...s,
+          status: newStatus,
+          name: nextName,
+          consolidationMode: isRevertingToSingle
+            ? 'direct'
+            : s.consolidationMode,
+        };
+      })
     );
 
     setCdItems((prev) =>
@@ -761,7 +812,34 @@ export default function CDImportTrackerApp() {
       showToast(
         'Pacote marcado como Já Consolidado (não aparecerá novamente para consolidação).'
       );
+    } else if (newStatus === 'em_transito') {
+      showToast('Pacote em trânsito para o Brasil!');
     }
+  };
+
+  // Salvar código de rastreamento para o Brasil diretamente e mudar status para Em Trânsito
+  const handleSaveTrackingCode = (shipmentId: string, trackingCode: string) => {
+    const cleanCode = trackingCode.trim().toUpperCase();
+    if (!cleanCode) return;
+
+    setShipments((prev) =>
+      prev.map((s) =>
+        s.id === shipmentId
+          ? {
+              ...s,
+              internationalTrackingCode: cleanCode,
+              status: 'em_transito',
+              name: s.isCustomName ? s.name : cleanCode,
+            }
+          : s
+      )
+    );
+    setCdItems((prev) =>
+      prev.map((cd) =>
+        cd.shipmentId === shipmentId ? { ...cd, isConsolidated: true } : cd
+      )
+    );
+    showToast(`Rastreio ${cleanCode} salvo! Status alterado para Em Trânsito.`);
   };
 
   // Botão rápido no cabeçalho do pacote: reverter todo o pacote para "Comprado (Pacote Único)"
@@ -1174,6 +1252,7 @@ export default function CDImportTrackerApp() {
             onRevertPackageToSingle={handleRevertPackageToSingle}
             onApplyMgTaxEstimate={handleApplyMgTaxEstimate}
             onQuickStatusChange={handleQuickStatusChange}
+            onSaveTrackingCode={handleSaveTrackingCode}
             onSavePackageTitle={handleSavePackageTitle}
             onTogglePackageCustomNameLock={handleTogglePackageCustomNameLock}
             onSavePackageWeight={handleSavePackageWeight}

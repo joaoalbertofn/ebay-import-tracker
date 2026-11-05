@@ -49,17 +49,6 @@ export function getEstimatedItemWeightGrams(
   return cdGrams;
 }
 
-const DEFAULT_INTL_SHIPPING_BY_CURRENCY: Record<
-  CurrencyCode,
-  Record<WeightTierKg, number>
-> = {
-  GBP: { 0.5: 29.5, 1.0: 37.0, 1.3: 41.0, 1.5: 44.0, 2.0: 51.0 },
-  USD: { 0.5: 34.0, 1.0: 44.0, 1.3: 50.0, 1.5: 54.0, 2.0: 64.0 },
-  EUR: { 0.5: 32.0, 1.0: 40.0, 1.3: 45.0, 1.5: 48.0, 2.0: 56.0 },
-  JPY: { 0.5: 4200, 1.0: 5600, 1.3: 6400, 1.5: 7000, 2.0: 8400 },
-  BRL: { 0.5: 180.0, 1.0: 240.0, 1.3: 280.0, 1.5: 300.0, 2.0: 360.0 },
-};
-
 export interface EvaluatedForwarderPackage {
   option: ForwarderPackageOption;
   shipmentId: string;
@@ -75,6 +64,8 @@ export interface EvaluatedForwarderPackage {
   cdsPerKgDensity: number;
 }
 
+export type ForwarderService = 'forwardvia' | 'send2hub' | 'standard';
+
 export interface ConsolidationSuggestion {
   id: string;
   rank: number;
@@ -87,24 +78,30 @@ export interface ConsolidationSuggestion {
   totalVinyls: number;
   totalPhysicalDiscs: number;
   totalWeightKg: number;
+  billedWeightKg: number;
   totalSavedPackagingWeightKg: number;
   hasEstimatedWeights: boolean;
   weightUtilizationPercent: number;
   remainingWeightKg: number;
   exceedsTargetWeight: boolean;
   mode: Exclude<ConsolidationMode, 'direct'>;
+  forwarderService: ForwarderService;
   currency: CurrencyCode;
   exchangeRate: number;
   // Valores na moeda original
   cdsValueOriginal: number;
   inheritedInternalShippingOriginal: number;
   forwarderFeeOriginal: number;
+  forwarderFeePerCdOriginal: number;
   estimatedIntlShippingOriginal: number;
+  intlShippingPerCdOriginal: number;
   totalIndirectOriginal: number;
   consolidationAndIntlPerCdOriginal: number;
   indirectRateioPerCdOriginal: number;
   // Valores em BRL
   cdsValueBrl: number;
+  forwarderFeeBrl: number;
+  estimatedIntlShippingBrl: number;
   totalIndirectBrl: number;
   consolidationAndIntlPerCdBrl: number;
   indirectRateioPerCdBrl: number;
@@ -113,12 +110,24 @@ export interface ConsolidationSuggestion {
   estimatedTaxMgBrl: number;
   estimatedAvgFinalWithTaxMgPerCdBrl: number;
   estimatedSavingsVsIndividualBrl: number;
+  // Comparativo Send2Hub vs ForwardVia para GBP
+  alternativeForwarderComparison?: {
+    service: ForwarderService;
+    serviceName: string;
+    forwarderFeeOriginal: number;
+    intlShippingOriginal: number;
+    totalRedirOriginal: number;
+    totalRedirBrl: number;
+    savingsOriginal: number;
+    savingsBrl: number;
+  };
 }
 
 export interface ConsolidationAdvisorOptions {
   targetMaxWeightKg?: number;
   includePurchasedInTransit?: boolean;
   mode?: Exclude<ConsolidationMode, 'direct'>;
+  forwarderService?: ForwarderService;
   currency?: CurrencyCode;
   filterByCurrency?: boolean;
   exchangeRate?: number;
@@ -146,47 +155,71 @@ export interface ConsolidationAdvisorReport {
 }
 
 /**
- * Estima o frete internacional para uma faixa de peso (`targetMaxWeightKg`),
- * aproveitando o histórico real de pacotes consolidados/enviados da mesma moeda quando disponível.
+ * Arredonda o peso para o degrau superior de 100g (0,1 kg) cobrado pelos redirecionadores (ex: 0,78 kg -> 0,8 kg)
+ */
+export function getBilledWeight100gKg(weightKg: number): number {
+  if (!Number.isFinite(weightKg) || weightKg <= 0) return 0.1;
+  return Number(Math.max(0.1, Math.ceil((weightKg - 0.0001) * 10) / 10).toFixed(1));
+}
+
+/**
+ * Estima o frete internacional para um peso (`targetWeightKg`) em degraus de 100g (`0,1 kg`),
+ * utilizando as tarifas auditadas da ForwardVia ou Send2Hub para GBP, ou as tabelas do UsCloser/Europa para outras moedas.
  */
 export function getEstimatedIntlShippingForWeight(
   targetWeightKg: number,
   currency: CurrencyCode,
-  historicalShipments: Shipment[] = []
+  historicalShipments: Shipment[] = [],
+  forwarderService: ForwarderService = 'forwardvia'
 ): number {
-  const closestTier: WeightTierKg =
-    targetWeightKg <= 0.55
-      ? 0.5
-      : targetWeightKg <= 1.05
-      ? 1.0
-      : targetWeightKg <= 1.35
-      ? 1.3
-      : targetWeightKg <= 1.65
-      ? 1.5
-      : 2.0;
+  const billedWeightKg = getBilledWeight100gKg(targetWeightKg);
 
-  // Busca pacotes históricos da mesma moeda com frete internacional e peso próximos da faixa
-  const matchingHistory = historicalShipments.filter(
-    (s) =>
-      s.currency === currency &&
-      Number(s.internationalShipping) > 0 &&
-      Number(s.weightKg) > 0 &&
-      Math.abs(Number(s.weightKg) - closestTier) <= 0.2
-  );
+  if (currency === 'GBP') {
+    if (forwarderService === 'send2hub') {
+      // Tarifas reais auditadas Send2Hub UK -> Brasil (caixa padrão até 20x20x20 cm = 1.6kg vol):
+      // 0.1 a 1.5 kg = £25.71
+      // 1.6 a 2.0 kg = £28.18
+      if (billedWeightKg <= 1.5) return 25.71;
+      if (billedWeightKg <= 2.0) return 28.18;
+      return Number((28.18 + (billedWeightKg - 2.0) * 12.0).toFixed(2));
+    }
 
-  if (matchingHistory.length > 0) {
-    const avg =
-      matchingHistory.reduce(
-        (acc, s) => acc + Number(s.internationalShipping),
-        0
-      ) / matchingHistory.length;
-    return Number(avg.toFixed(2));
+    // ForwardVia (Standard Tracked com Royal Mail):
+    // Busca pacotes históricos apenas se tiverem exatamente o mesmo degrau de peso (±0,05 kg)
+    const matchingHistory = historicalShipments.filter(
+      (s) =>
+        s.currency === 'GBP' &&
+        Number(s.internationalShipping) > 0 &&
+        Number(s.weightKg) > 0 &&
+        Math.abs(Number(s.weightKg) - billedWeightKg) <= 0.05
+    );
+
+    if (matchingHistory.length > 0) {
+      const avg =
+        matchingHistory.reduce(
+          (acc, s) => acc + Number(s.internationalShipping),
+          0
+        ) / matchingHistory.length;
+      return Number(avg.toFixed(2));
+    }
+
+    // Curva auditada da calculadora da ForwardVia para o Brasil (Royal Mail Standard: £22.255 + £14.697/kg)
+    return Number((22.255 + 14.697 * billedWeightKg).toFixed(2));
   }
 
-  return (
-    DEFAULT_INTL_SHIPPING_BY_CURRENCY[currency]?.[closestTier] ??
-    DEFAULT_INTL_SHIPPING_BY_CURRENCY.GBP[closestTier]
-  );
+  // Outras moedas (USD, EUR, JPY, BRL)
+  switch (currency) {
+    case 'USD':
+      return Number((24.0 + 20.0 * billedWeightKg).toFixed(2));
+    case 'EUR':
+      return Number((24.0 + 16.0 * billedWeightKg).toFixed(2));
+    case 'JPY':
+      return Math.round(2800 + 2800 * billedWeightKg);
+    case 'BRL':
+      return Number((120.0 + 120.0 * billedWeightKg).toFixed(2));
+    default:
+      return Number((22.255 + 14.697 * billedWeightKg).toFixed(2));
+  }
 }
 
 /**
@@ -328,6 +361,9 @@ export function generateConsolidationAdvisorReport(
     ? allEvaluated
     : inForwarderPackages;
 
+  const activeForwarderService: ForwarderService =
+    options.forwarderService || 'forwardvia';
+
   const estimatedIntlShippingOriginal =
     options.estimatedIntlShippingOverride !== undefined &&
     options.estimatedIntlShippingOverride >= 0
@@ -335,7 +371,8 @@ export function generateConsolidationAdvisorReport(
       : getEstimatedIntlShippingForWeight(
           targetMaxWeightKg,
           currency,
-          options.historicalShipments
+          options.historicalShipments,
+          activeForwarderService
         );
 
   if (eligiblePool.length < 2) {
@@ -365,12 +402,6 @@ export function generateConsolidationAdvisorReport(
           )
           .slice(0, 14)
       : eligiblePool;
-
-  const singlePkgIntlShippingRef = getEstimatedIntlShippingForWeight(
-    0.5,
-    currency,
-    options.historicalShipments
-  );
 
   const buildSuggestionFromSubset = (
     subset: EvaluatedForwarderPackage[]
@@ -423,21 +454,39 @@ export function generateConsolidationAdvisorReport(
       exchangeRate
     );
 
-    const forwarderFeeOriginal = calculateConsolidationFee(
-      packageCount,
-      mode,
-      groupOnlyFeeUnit,
-      unpackAndRepackFeeUnit
-    );
+    const forwarderFeeOriginal =
+      activeForwarderService === 'send2hub'
+        ? 0
+        : calculateConsolidationFee(
+            packageCount,
+            mode,
+            groupOnlyFeeUnit,
+            unpackAndRepackFeeUnit
+          );
 
-    // Se exceder a faixa alvo (fallback), estima o frete da faixa real do subconjunto
-    const effectiveIntlShippingOriginal = exceedsTargetWeight
-      ? getEstimatedIntlShippingForWeight(
-          totalWeightKg,
-          currency,
-          options.historicalShipments
-        )
-      : estimatedIntlShippingOriginal;
+    const billedWeightKg = getBilledWeight100gKg(totalWeightKg);
+    const hasManualShippingOverride =
+      options.estimatedIntlShippingOverride !== undefined &&
+      options.estimatedIntlShippingOverride >= 0;
+
+    // Quando não há override manual, calcula o frete internacional para o peso real da combinação (arredondado em 100g)
+    // usando as tarifas reais do redirecionador selecionado (ForwardVia ou Send2Hub)
+    const effectiveIntlShippingOriginal =
+      hasManualShippingOverride && !exceedsTargetWeight
+        ? options.estimatedIntlShippingOverride!
+        : getEstimatedIntlShippingForWeight(
+            totalWeightKg,
+            currency,
+            options.historicalShipments,
+            activeForwarderService
+          );
+
+    const forwarderFeePerCdOriginal = Number(
+      (forwarderFeeOriginal / totalCds).toFixed(2)
+    );
+    const intlShippingPerCdOriginal = Number(
+      (effectiveIntlShippingOriginal / totalCds).toFixed(2)
+    );
 
     const totalIndirectOriginal = Number(
       (
@@ -457,6 +506,12 @@ export function generateConsolidationAdvisorReport(
     );
 
     const cdsValueBrl = Number((cdsValueOriginal * exchangeRate).toFixed(2));
+    const forwarderFeeBrl = Number(
+      (forwarderFeeOriginal * exchangeRate).toFixed(2)
+    );
+    const estimatedIntlShippingBrl = Number(
+      (effectiveIntlShippingOriginal * exchangeRate).toFixed(2)
+    );
     const totalIndirectBrl = Number(
       (totalIndirectOriginal * exchangeRate).toFixed(2)
     );
@@ -478,9 +533,75 @@ export function generateConsolidationAdvisorReport(
       ((estimatedTotalNoTaxBrl + estimatedTaxMgBrl) / totalCds).toFixed(2)
     );
 
+    // Comparativo inteligente com o serviço alternativo (ForwardVia <-> Send2Hub) para remessas do UK
+    let alternativeForwarderComparison: ConsolidationSuggestion['alternativeForwarderComparison'];
+    if (currency === 'GBP') {
+      if (activeForwarderService === 'forwardvia') {
+        const altFee = 0;
+        const altIntl = getEstimatedIntlShippingForWeight(
+          totalWeightKg,
+          'GBP',
+          [],
+          'send2hub'
+        );
+        const altTotal = altFee + altIntl;
+        const altTotalBrl = Number((altTotal * exchangeRate).toFixed(2));
+        const currentTotalRedir = forwarderFeeOriginal + effectiveIntlShippingOriginal;
+        const savingsOriginal = Number((currentTotalRedir - altTotal).toFixed(2));
+        const savingsBrl = Number((savingsOriginal * exchangeRate).toFixed(2));
+        alternativeForwarderComparison = {
+          service: 'send2hub',
+          serviceName: 'Send2Hub (Grátis + Royal Mail Tracked)',
+          forwarderFeeOriginal: altFee,
+          intlShippingOriginal: altIntl,
+          totalRedirOriginal: altTotal,
+          totalRedirBrl: altTotalBrl,
+          savingsOriginal,
+          savingsBrl,
+        };
+      } else if (activeForwarderService === 'send2hub') {
+        const altFee = calculateConsolidationFee(
+          packageCount,
+          mode,
+          groupOnlyFeeUnit,
+          unpackAndRepackFeeUnit
+        );
+        const altIntl = getEstimatedIntlShippingForWeight(
+          totalWeightKg,
+          'GBP',
+          options.historicalShipments,
+          'forwardvia'
+        );
+        const altTotal = altFee + altIntl;
+        const altTotalBrl = Number((altTotal * exchangeRate).toFixed(2));
+        const currentTotalRedir = forwarderFeeOriginal + effectiveIntlShippingOriginal;
+        const savingsOriginal = Number((altTotal - currentTotalRedir).toFixed(2));
+        const savingsBrl = Number((savingsOriginal * exchangeRate).toFixed(2));
+        alternativeForwarderComparison = {
+          service: 'forwardvia',
+          serviceName: 'ForwardVia (Standard Tracked)',
+          forwarderFeeOriginal: altFee,
+          intlShippingOriginal: altIntl,
+          totalRedirOriginal: altTotal,
+          totalRedirBrl: altTotalBrl,
+          savingsOriginal,
+          savingsBrl,
+        };
+      }
+    }
+
     // Economia vs enviar cada pacote separadamente sem consolidar
-    const separateIntlShippingTotalOriginal =
-      packageCount * singlePkgIntlShippingRef;
+    const separateIntlShippingTotalOriginal = subset.reduce(
+      (acc, p) =>
+        acc +
+        getEstimatedIntlShippingForWeight(
+          p.weightKg,
+          currency,
+          options.historicalShipments,
+          activeForwarderService
+        ),
+      0
+    );
     const savingsOriginal = Math.max(
       0,
       separateIntlShippingTotalOriginal -
@@ -500,22 +621,28 @@ export function generateConsolidationAdvisorReport(
       totalVinyls,
       totalPhysicalDiscs,
       totalWeightKg,
+      billedWeightKg,
       totalSavedPackagingWeightKg,
       hasEstimatedWeights,
       weightUtilizationPercent,
       remainingWeightKg,
       exceedsTargetWeight,
       mode,
+      forwarderService: activeForwarderService,
       currency,
       exchangeRate,
       cdsValueOriginal,
       inheritedInternalShippingOriginal,
       forwarderFeeOriginal,
+      forwarderFeePerCdOriginal,
       estimatedIntlShippingOriginal: effectiveIntlShippingOriginal,
+      intlShippingPerCdOriginal,
       totalIndirectOriginal,
       consolidationAndIntlPerCdOriginal,
       indirectRateioPerCdOriginal,
       cdsValueBrl,
+      forwarderFeeBrl,
+      estimatedIntlShippingBrl,
       totalIndirectBrl,
       consolidationAndIntlPerCdBrl,
       indirectRateioPerCdBrl,
@@ -524,6 +651,7 @@ export function generateConsolidationAdvisorReport(
       estimatedTaxMgBrl,
       estimatedAvgFinalWithTaxMgPerCdBrl,
       estimatedSavingsVsIndividualBrl,
+      alternativeForwarderComparison,
     };
   };
 

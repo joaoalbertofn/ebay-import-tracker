@@ -194,6 +194,15 @@ describe('calculations.ts — Regras Financeiras e Rateio', () => {
         },
       ])
     ).toBe('[Vinil Individual] Him - Tears On Tape');
+
+    // Pacote Em Trânsito com código de rastreamento para o Brasil
+    expect(
+      generatePackageName(
+        [{ artist: 'Deftones', albumTitle: 'White Pony' }],
+        undefined,
+        { trackingCode: 'LT497056434GB', status: 'em_transito' }
+      )
+    ).toBe('LT497056434GB');
   });
 
   it('deve contabilizar cdItemsCount e vinylItemsCount separadamente', () => {

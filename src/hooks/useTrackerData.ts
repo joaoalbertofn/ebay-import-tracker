@@ -19,7 +19,12 @@ export function normalizeConsolidatedState(
 
   const nextShipments = shipmentsList.map((s) => {
     const items = cdItemsList.filter((cd) => cd.shipmentId === s.id);
-    const autoName = s.isCustomName ? s.name : generatePackageName(items, s.name);
+    const autoName = s.isCustomName
+      ? s.name
+      : generatePackageName(items, s.name, {
+          trackingCode: s.internationalTrackingCode,
+          status: s.status,
+        });
 
     let updatedShipment = s;
     if (autoName !== s.name) {
@@ -413,8 +418,11 @@ export function useTrackerData({
       const updated = prev.map((s) => {
         if (s.isCustomName) return s;
         const itemsForShip = cdItems.filter((cd) => cd.shipmentId === s.id);
-        if (itemsForShip.length === 0) return s;
-        const expectedName = generatePackageName(itemsForShip, s.name);
+        if (itemsForShip.length === 0 && !s.internationalTrackingCode) return s;
+        const expectedName = generatePackageName(itemsForShip, s.name, {
+          trackingCode: s.internationalTrackingCode,
+          status: s.status,
+        });
         if (expectedName !== s.name) {
           anyChanged = true;
           return { ...s, name: expectedName };

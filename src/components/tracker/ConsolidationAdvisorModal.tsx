@@ -20,6 +20,7 @@ import { ForwarderPackageOption } from '@/lib/domain/consolidation';
 import {
   ConsolidationSuggestion,
   DEFAULT_ESTIMATED_GRAMS_PER_DISC,
+  ForwarderService,
   WEIGHT_TIER_OPTIONS,
   WeightTierKg,
   generateConsolidationAdvisorReport,
@@ -73,6 +74,7 @@ export const ConsolidationAdvisorModal: React.FC<
   const [mode, setMode] = useState<Exclude<ConsolidationMode, 'direct'>>(
     'unpack_and_repack'
   );
+  const [forwarderService, setForwarderService] = useState<ForwarderService>('forwardvia');
   const [customIntlShipping, setCustomIntlShipping] = useState<string>('');
 
   // Moedas / Hubs disponíveis nos pacotes elegíveis (sempre mostrando ao menos GBP e USD se existirem)
@@ -98,6 +100,9 @@ export const ConsolidationAdvisorModal: React.FC<
   )
     ? selectedCurrency
     : availableCurrencies[0] || 'GBP';
+
+  const effectiveForwarderService: ForwarderService =
+    dominantCurrency === 'GBP' ? forwarderService : 'forwardvia';
 
   const referenceExchangeRate = useMemo(() => {
     const matching = forwarderPackages.find(
@@ -132,9 +137,10 @@ export const ConsolidationAdvisorModal: React.FC<
     return getEstimatedIntlShippingForWeight(
       targetWeightKg,
       dominantCurrency,
-      allShipments
+      allShipments,
+      effectiveForwarderService
     );
-  }, [targetWeightKg, dominantCurrency, allShipments]);
+  }, [targetWeightKg, dominantCurrency, allShipments, effectiveForwarderService]);
 
   const parsedCustomIntl = parseFloat(customIntlShipping);
   const effectiveIntlOverride =
@@ -147,6 +153,7 @@ export const ConsolidationAdvisorModal: React.FC<
       targetMaxWeightKg: targetWeightKg,
       includePurchasedInTransit: includePurchased,
       mode,
+      forwarderService: effectiveForwarderService,
       currency: dominantCurrency,
       filterByCurrency: true,
       exchangeRate: referenceExchangeRate,
@@ -162,6 +169,7 @@ export const ConsolidationAdvisorModal: React.FC<
     targetWeightKg,
     includePurchased,
     mode,
+    effectiveForwarderService,
     dominantCurrency,
     referenceExchangeRate,
     feePresets,
@@ -173,7 +181,9 @@ export const ConsolidationAdvisorModal: React.FC<
 
   const currSymbol = CURRENCY_META[dominantCurrency]?.symbol || '£';
   const activeUnitFee =
-    mode === 'unpack_and_repack'
+    dominantCurrency === 'GBP' && forwarderService === 'send2hub'
+      ? 0
+      : mode === 'unpack_and_repack'
       ? feePresets.savedUnpack
       : feePresets.savedGroup;
 
@@ -249,9 +259,60 @@ export const ConsolidationAdvisorModal: React.FC<
               </div>
             )}
 
+            {/* Seletor de Redirecionador UK (ForwardVia vs Send2Hub) quando a moeda for GBP */}
+            {dominantCurrency === 'GBP' && (
+              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-300">
+                    Tabela do Redirecionador UK:
+                  </span>
+                  <span className="text-[10px] text-slate-400 hidden sm:inline">
+                    (compara tarifas reais de frete e consolidação)
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForwarderService('forwardvia');
+                      setCustomIntlShipping('');
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer flex items-center gap-1.5 ${
+                      forwarderService === 'forwardvia'
+                        ? 'bg-amber-500/20 border-amber-400 text-amber-200 shadow-sm'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>ForwardVia (Atual)</span>
+                    <span className="text-[10px] font-mono text-amber-300/80">
+                      £3,60/£2,48
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForwarderService('send2hub');
+                      setCustomIntlShipping('');
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer flex items-center gap-1.5 ${
+                      forwarderService === 'send2hub'
+                        ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200 shadow-sm'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>Send2Hub</span>
+                    <span className="text-[10px] font-mono px-1 rounded bg-emerald-500/30 text-emerald-300 font-bold">
+                      Taxa Grátis £0 🏆
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-end">
               {/* 1. Seletor de Meta de Peso */}
-              <div className="md:col-span-6 space-y-1.5">
+              <div className="md:col-span-5 space-y-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                   <Scale className="w-3.5 h-3.5 text-emerald-400" />
                   1. Meta / Limite de Peso da Caixa
@@ -286,7 +347,7 @@ export const ConsolidationAdvisorModal: React.FC<
               </div>
 
               {/* 2. Modo de Consolidação */}
-              <div className="md:col-span-3 space-y-1.5">
+              <div className="md:col-span-4 space-y-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                   <Layers className="w-3.5 h-3.5 text-amber-400" />
                   2. Modo no Redirecionador
@@ -295,7 +356,7 @@ export const ConsolidationAdvisorModal: React.FC<
                   <button
                     type="button"
                     onClick={() => setMode('unpack_and_repack')}
-                    className={`rounded-xl border px-2.5 py-2 text-left transition cursor-pointer ${
+                    className={`rounded-xl border px-2 py-2 text-left transition cursor-pointer ${
                       mode === 'unpack_and_repack'
                         ? 'bg-amber-500/20 border-amber-400 text-white'
                         : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
@@ -303,18 +364,19 @@ export const ConsolidationAdvisorModal: React.FC<
                   >
                     <div className="text-xs font-bold flex items-center gap-1">
                       <PackageOpen className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span className="truncate">Desempacotar</span>
+                      <span>Desempacotar</span>
                     </div>
-                    <div className="text-[10px] font-mono text-amber-300/90">
-                      {currSymbol}
-                      {feePresets.savedUnpack.toFixed(2)} / pacote
+                    <div className="text-[10px] font-mono text-amber-300/90 truncate">
+                      {dominantCurrency === 'GBP' && forwarderService === 'send2hub'
+                        ? 'Grátis (£0,00)'
+                        : `${currSymbol}${feePresets.savedUnpack.toFixed(2)} / pacote`}
                     </div>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setMode('group_only')}
-                    className={`rounded-xl border px-2.5 py-2 text-left transition cursor-pointer ${
+                    className={`rounded-xl border px-2 py-2 text-left transition cursor-pointer ${
                       mode === 'group_only'
                         ? 'bg-indigo-500/20 border-indigo-400 text-white'
                         : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
@@ -322,20 +384,21 @@ export const ConsolidationAdvisorModal: React.FC<
                   >
                     <div className="text-xs font-bold flex items-center gap-1">
                       <PackageCheck className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                      <span className="truncate">Só Agrupar</span>
+                      <span>Só Agrupar</span>
                     </div>
-                    <div className="text-[10px] font-mono text-indigo-300/90">
-                      {currSymbol}
-                      {feePresets.savedGroup.toFixed(2)} / pacote
+                    <div className="text-[10px] font-mono text-indigo-300/90 truncate">
+                      {dominantCurrency === 'GBP' && forwarderService === 'send2hub'
+                        ? 'Grátis (£0,00)'
+                        : `${currSymbol}${feePresets.savedGroup.toFixed(2)} / pacote`}
                     </div>
                   </button>
                 </div>
               </div>
 
-              {/* 3. Frete Internacional Estimado da Faixa */}
+              {/* 3. Frete Internacional Estimado (ou Manual) */}
               <div className="md:col-span-3 space-y-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block">
-                  3. Frete Intl. Estimado ({currSymbol})
+                  3. Frete Intl. Manual ({currSymbol})
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-400">
@@ -345,23 +408,30 @@ export const ConsolidationAdvisorModal: React.FC<
                     type="number"
                     step="0.5"
                     min="0"
-                    placeholder={defaultTierIntlShipping.toFixed(2)}
+                    placeholder={`Auto p/ peso (teto: ${defaultTierIntlShipping.toFixed(2)})`}
                     value={customIntlShipping}
                     onChange={(e) => setCustomIntlShipping(e.target.value)}
                     className="w-full rounded-xl bg-slate-900 border border-slate-800 pl-8 pr-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
                 <div className="text-[10px] text-slate-500 font-mono">
-                  Ref. faixa:{' '}
-                  {formatOriginalCurrency(
-                    report.estimatedIntlShippingOriginal,
-                    dominantCurrency
-                  )}{' '}
-                  (≈{' '}
-                  {formatBrl(
-                    report.estimatedIntlShippingOriginal * referenceExchangeRate
+                  {customIntlShipping.trim() !== '' ? (
+                    <>
+                      Fixado manual:{' '}
+                      {formatOriginalCurrency(
+                        report.estimatedIntlShippingOriginal,
+                        dominantCurrency
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      Auto por degrau 100g • Teto {targetWeightKg.toFixed(1).replace('.', ',')}kg:{' '}
+                      {formatOriginalCurrency(
+                        report.estimatedIntlShippingOriginal,
+                        dominantCurrency
+                      )}
+                    </>
                   )}
-                  )
                 </div>
               </div>
             </div>
@@ -635,92 +705,296 @@ export const ConsolidationAdvisorModal: React.FC<
                       </div>
                     </div>
 
-                    {/* Métricas Financeiras e Rateio por CD */}
-                    <div className="mt-3.5 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                      <div className="rounded-xl bg-slate-950/90 border border-emerald-500/30 p-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-slate-400">
-                          Rateio Indireto / CD
-                        </div>
-                        <div className="text-sm sm:text-base font-bold font-mono text-emerald-400 mt-0.5">
-                          + {formatBrl(sug.indirectRateioPerCdBrl)}{' '}
-                          <span className="text-[10px] font-normal text-slate-400">
-                            / CD
-                          </span>
-                        </div>
-                        <div className="text-[11px] font-mono text-slate-400">
-                          {formatOriginalCurrency(
-                            sug.indirectRateioPerCdOriginal,
-                            dominantCurrency
-                          )}{' '}
-                          por CD
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-950/90 border border-slate-800 p-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-slate-400">
-                          Taxa Redir. + Frete Intl.
-                        </div>
-                        <div className="text-xs sm:text-sm font-bold font-mono text-amber-300 mt-0.5">
-                          {formatOriginalCurrency(
-                            sug.forwarderFeeOriginal +
-                              sug.estimatedIntlShippingOriginal,
-                            dominantCurrency
-                          )}
-                        </div>
-                        <div className="text-[10px] font-mono text-slate-400">
-                          Taxa {sug.packageCount}x {currSymbol}
-                          {activeUnitFee.toFixed(2)} + Frete{' '}
-                          {formatOriginalCurrency(
-                            sug.estimatedIntlShippingOriginal,
-                            dominantCurrency
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-950/90 border border-slate-800 p-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-slate-400 flex items-center justify-between gap-1">
-                          <span>Custo Final Médio / CD</span>
-                          {sug.estimatedAvgFinalWithTaxMgPerCdBrl <= 80 && (
-                            <span className="rounded bg-emerald-500/20 border border-emerald-500/40 px-1.5 py-0.2 text-[9px] font-bold text-emerald-300">
-                              {sug.estimatedAvgFinalWithTaxMgPerCdBrl <= 70
-                                ? '🎯 Na Meta'
-                                : '✅ Ótimo'}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs sm:text-sm font-bold font-mono text-white mt-0.5">
-                          {formatBrl(sug.estimatedAvgFinalPerCdBrl)}{' '}
-                          <span className="text-[10px] font-normal text-slate-400">
-                            (s/ imp.)
-                          </span>
-                        </div>
-                        <div className="text-[10px] font-mono text-rose-300/90">
-                          c/ Est. MG:{' '}
-                          {formatBrl(sug.estimatedAvgFinalWithTaxMgPerCdBrl)}
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-950/90 border border-slate-800 p-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-slate-400">
-                          Total Caixa (CDs + Fretes)
-                        </div>
-                        <div className="text-xs sm:text-sm font-bold font-mono text-indigo-300 mt-0.5">
-                          {formatBrl(sug.estimatedTotalNoTaxBrl)}
-                        </div>
-                        <div className="text-[10px] font-mono text-slate-400">
-                          CDs:{' '}
-                          {formatOriginalCurrency(
-                            sug.cdsValueOriginal,
-                            dominantCurrency
-                          )}
-                          {sug.inheritedInternalShippingOriginal > 0
-                            ? ` • Local: ${formatOriginalCurrency(
-                                sug.inheritedInternalShippingOriginal,
+                    {/* Métricas Financeiras e Detalhamento Claro: Consolidação vs Frete vs Rateio */}
+                    <div className="mt-3.5 space-y-2.5">
+                      {/* Linha 1: Destaque separado do Custo de Consolidação e do Frete Internacional Sugerido */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {/* Card A: Custo de Consolidação dos Pacotes */}
+                        <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 flex items-center justify-between gap-3">
+                          <div className="space-y-0.5 min-w-0">
+                            <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                              <Layers className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span>
+                                Custo de Consolidação ({sug.packageCount} pacotes)
+                              </span>
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-300">
+                              {sug.packageCount} pcts × {currSymbol}
+                              {activeUnitFee.toFixed(2)} (
+                              {sug.mode === 'unpack_and_repack'
+                                ? 'Desempacotar'
+                                : 'Só Agrupar'}
+                              )
+                            </div>
+                            <div className="text-[10px] font-mono text-amber-200/80">
+                              Impacto:{' '}
+                              {formatOriginalCurrency(
+                                sug.forwarderFeePerCdOriginal,
                                 dominantCurrency
-                              )}`
-                            : ''}
+                              )}
+                              /CD (≈{' '}
+                              {formatBrl(
+                                sug.forwarderFeeBrl / Math.max(1, sug.totalCds)
+                              )}
+                              /CD)
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-base sm:text-lg font-bold font-mono text-amber-300">
+                              {formatOriginalCurrency(
+                                sug.forwarderFeeOriginal,
+                                dominantCurrency
+                              )}
+                            </div>
+                            <div className="text-xs font-mono text-amber-200/90 font-semibold">
+                              ≈ {formatBrl(sug.forwarderFeeBrl)}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card B: Frete Internacional Sugerido pelo Peso Real (degrau 100g) */}
+                        <div className="rounded-xl bg-sky-500/10 border border-sky-500/30 p-3 flex items-center justify-between gap-3">
+                          <div className="space-y-0.5 min-w-0">
+                            <div className="text-[10px] font-semibold uppercase tracking-wider text-sky-300 flex items-center gap-1.5">
+                              <Scale className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                              <span>
+                                Frete Internacional Sugerido (degrau{' '}
+                                {sug.billedWeightKg.toFixed(1).replace('.', ',')} kg)
+                              </span>
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-300">
+                              Peso est. ~{formatWeightKg(sug.totalWeightKg)}
+                              {sug.billedWeightKg < targetWeightKg &&
+                                customIntlShipping.trim() === '' && (
+                                  <span className="text-slate-400">
+                                    {' '}
+                                    (teto {targetWeightKg.toFixed(1).replace('.', ',')}kg:{' '}
+                                    {formatOriginalCurrency(
+                                      report.estimatedIntlShippingOriginal,
+                                      dominantCurrency
+                                    )}
+                                    )
+                                  </span>
+                                )}
+                            </div>
+                            <div className="text-[10px] font-mono text-sky-200/80">
+                              Impacto:{' '}
+                              {formatOriginalCurrency(
+                                sug.intlShippingPerCdOriginal,
+                                dominantCurrency
+                              )}
+                              /CD (≈{' '}
+                              {formatBrl(
+                                sug.estimatedIntlShippingBrl /
+                                  Math.max(1, sug.totalCds)
+                              )}
+                              /CD)
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-base sm:text-lg font-bold font-mono text-sky-300">
+                              {formatOriginalCurrency(
+                                sug.estimatedIntlShippingOriginal,
+                                dominantCurrency
+                              )}
+                            </div>
+                            <div className="text-xs font-mono text-sky-200/90 font-semibold">
+                              ≈ {formatBrl(sug.estimatedIntlShippingBrl)}
+                            </div>
+                          </div>
                         </div>
                       </div>
+
+                      {/* Linha 2: Resumo de Rateio Indireto, Total Redirecionador, Custo Final/CD e Total Caixa */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        <div className="rounded-xl bg-slate-950/90 border border-emerald-500/30 p-2.5">
+                          <div className="text-[10px] uppercase tracking-wider text-slate-400">
+                            Rateio Indireto / CD
+                          </div>
+                          <div className="text-sm sm:text-base font-bold font-mono text-emerald-400 mt-0.5">
+                            + {formatBrl(sug.indirectRateioPerCdBrl)}{' '}
+                            <span className="text-[10px] font-normal text-slate-400">
+                              / CD
+                            </span>
+                          </div>
+                          <div className="text-[10px] font-mono text-slate-400">
+                            {formatOriginalCurrency(
+                              sug.indirectRateioPerCdOriginal,
+                              dominantCurrency
+                            )}
+                            /CD (Consol. + Fretes)
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl bg-slate-950/90 border border-slate-800 p-2.5">
+                          <div className="text-[10px] uppercase tracking-wider text-slate-400">
+                            Soma Redir. (Taxa + Frete)
+                          </div>
+                          <div className="text-xs sm:text-sm font-bold font-mono text-amber-200 mt-0.5">
+                            {formatOriginalCurrency(
+                              sug.forwarderFeeOriginal +
+                                sug.estimatedIntlShippingOriginal,
+                              dominantCurrency
+                            )}{' '}
+                            <span className="text-[10px] font-normal text-slate-400">
+                              (≈{' '}
+                              {formatBrl(
+                                sug.forwarderFeeBrl +
+                                  sug.estimatedIntlShippingBrl
+                              )}
+                              )
+                            </span>
+                          </div>
+                          <div className="text-[10px] font-mono text-slate-400">
+                            Taxa{' '}
+                            {formatOriginalCurrency(
+                              sug.forwarderFeeOriginal,
+                              dominantCurrency
+                            )}{' '}
+                            + Frete{' '}
+                            {formatOriginalCurrency(
+                              sug.estimatedIntlShippingOriginal,
+                              dominantCurrency
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl bg-slate-950/90 border border-slate-800 p-2.5">
+                          <div className="text-[10px] uppercase tracking-wider text-slate-400 flex items-center justify-between gap-1">
+                            <span>Custo Final Médio / CD</span>
+                            {sug.estimatedAvgFinalWithTaxMgPerCdBrl <= 80 && (
+                              <span className="rounded bg-emerald-500/20 border border-emerald-500/40 px-1.5 py-0.2 text-[9px] font-bold text-emerald-300">
+                                {sug.estimatedAvgFinalWithTaxMgPerCdBrl <= 70
+                                  ? '🎯 Na Meta'
+                                  : '✅ Ótimo'}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs sm:text-sm font-bold font-mono text-white mt-0.5">
+                            {formatBrl(sug.estimatedAvgFinalPerCdBrl)}{' '}
+                            <span className="text-[10px] font-normal text-slate-400">
+                              (s/ imp.)
+                            </span>
+                          </div>
+                          <div className="text-[10px] font-mono text-rose-300/90">
+                            c/ Est. MG:{' '}
+                            {formatBrl(sug.estimatedAvgFinalWithTaxMgPerCdBrl)}
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl bg-slate-950/90 border border-slate-800 p-2.5">
+                          <div className="text-[10px] uppercase tracking-wider text-slate-400">
+                            Total Caixa (CDs + Fretes)
+                          </div>
+                          <div className="text-xs sm:text-sm font-bold font-mono text-indigo-300 mt-0.5">
+                            {formatBrl(sug.estimatedTotalNoTaxBrl)}
+                          </div>
+                          <div className="text-[10px] font-mono text-slate-400">
+                            CDs:{' '}
+                            {formatOriginalCurrency(
+                              sug.cdsValueOriginal,
+                              dominantCurrency
+                            )}
+                            {sug.inheritedInternalShippingOriginal > 0
+                              ? ` • Local: ${formatOriginalCurrency(
+                                  sug.inheritedInternalShippingOriginal,
+                                  dominantCurrency
+                                )}`
+                              : ''}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Banner Comparativo Inteligente Send2Hub vs ForwardVia */}
+                      {sug.alternativeForwarderComparison && (
+                        <div
+                          className={`rounded-xl border p-2.5 sm:p-3 flex flex-wrap items-center justify-between gap-3 ${
+                            sug.forwarderService === 'forwardvia'
+                              ? 'bg-emerald-950/25 border-emerald-500/30 text-emerald-200'
+                              : 'bg-amber-950/25 border-amber-500/30 text-amber-200'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="text-lg shrink-0">
+                              {sug.forwarderService === 'forwardvia' ? '💡' : '🏆'}
+                            </span>
+                            <div className="text-xs leading-relaxed">
+                              {sug.forwarderService === 'forwardvia' ? (
+                                <div>
+                                  <strong className="text-emerald-300">
+                                    Dica Logística — Economize{' '}
+                                    {formatOriginalCurrency(
+                                      sug.alternativeForwarderComparison.savingsOriginal,
+                                      dominantCurrency
+                                    )}{' '}
+                                    (≈ {formatBrl(sug.alternativeForwarderComparison.savingsBrl)}) no Send2Hub:
+                                  </strong>{' '}
+                                  <span className="text-slate-300">
+                                    No Send2Hub a consolidação é <strong>Grátis (£0,00)</strong> e o frete rastreado sai por{' '}
+                                    <strong>
+                                      {formatOriginalCurrency(
+                                        sug.alternativeForwarderComparison.intlShippingOriginal,
+                                        dominantCurrency
+                                      )}
+                                    </strong>{' '}
+                                    (Total:{' '}
+                                    {formatOriginalCurrency(
+                                      sug.alternativeForwarderComparison.totalRedirOriginal,
+                                      dominantCurrency
+                                    )}{' '}
+                                    vs{' '}
+                                    {formatOriginalCurrency(
+                                      sug.forwarderFeeOriginal +
+                                        sug.estimatedIntlShippingOriginal,
+                                      dominantCurrency
+                                    )}{' '}
+                                    na ForwardVia).
+                                  </span>
+                                </div>
+                              ) : (
+                                <div>
+                                  <strong className="text-emerald-300">
+                                    Send2Hub Ativo (Consolidação Grátis 🏆):
+                                  </strong>{' '}
+                                  <span className="text-slate-300">
+                                    Economia total de{' '}
+                                    <strong className="text-emerald-300">
+                                      {formatOriginalCurrency(
+                                        sug.alternativeForwarderComparison.savingsOriginal,
+                                        dominantCurrency
+                                      )}{' '}
+                                      (≈ {formatBrl(sug.alternativeForwarderComparison.savingsBrl)})
+                                    </strong>{' '}
+                                    em relação à ForwardVia ({formatOriginalCurrency(
+                                      sug.alternativeForwarderComparison.totalRedirOriginal,
+                                      dominantCurrency
+                                    )}).
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setForwarderService(
+                                sug.forwarderService === 'forwardvia' ? 'send2hub' : 'forwardvia'
+                              );
+                              setCustomIntlShipping('');
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer shrink-0 ${
+                              sug.forwarderService === 'forwardvia'
+                                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 hover:bg-emerald-500/30'
+                                : 'bg-amber-500/20 border-amber-400 text-amber-300 hover:bg-amber-500/30'
+                            }`}
+                          >
+                            {sug.forwarderService === 'forwardvia'
+                              ? '⚡ Simular com Send2Hub'
+                              : 'Voltar p/ ForwardVia'}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Lista de Pacotes que compõem a combinação */}

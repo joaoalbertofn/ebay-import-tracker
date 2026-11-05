@@ -15,6 +15,8 @@ import {
   ExternalLink,
   ChevronRight,
   Sparkles,
+  Plane,
+  Truck,
 } from 'lucide-react';
 import { Shipment, ShipmentStatus, ShipmentSummary } from '@/types/tracker';
 import { STATUS_LABELS } from '@/components/ShipmentModal';
@@ -256,17 +258,83 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
                         </button>
                       )}
 
-                      <h3 className="text-sm font-semibold text-white truncate flex items-center gap-1.5 min-w-0">
-                        {ship.isCustomName && (
-                          <span
-                            title="Nome personalizado travado"
-                            className="inline-flex shrink-0"
-                          >
-                            <Lock className="w-3 h-3 text-amber-400" />
-                          </span>
-                        )}
-                        <span className="truncate">{ship.name}</span>
-                      </h3>
+                      {(() => {
+                        const hasBrazilTracking = Boolean(
+                          ship.internationalTrackingCode?.trim()
+                        );
+                        const isDispatched =
+                          ship.status === 'em_transito' ||
+                          ship.status === 'tributado' ||
+                          ship.status === 'entregue';
+                        const showTrackingAsName =
+                          hasBrazilTracking &&
+                          (isDispatched ||
+                            ship.name === ship.internationalTrackingCode?.trim());
+
+                        if (showTrackingAsName) {
+                          return (
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <Plane className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                <span
+                                  className="font-mono text-sm font-bold text-sky-300 truncate tracking-wide"
+                                  title={ship.internationalTrackingCode?.trim()}
+                                >
+                                  {ship.internationalTrackingCode?.trim()}
+                                </span>
+                                {ship.isCustomName && (
+                                  <span
+                                    title="Nome personalizado travado"
+                                    className="inline-flex shrink-0"
+                                  >
+                                    <Lock className="w-3 h-3 text-amber-400" />
+                                  </span>
+                                )}
+                              </div>
+                              {ship.name &&
+                              ship.name !==
+                                ship.internationalTrackingCode?.trim() ? (
+                                <p
+                                  className="text-[11px] text-slate-400 truncate mt-0.5"
+                                  title={ship.name}
+                                >
+                                  {ship.name}
+                                </p>
+                              ) : summary && summary.items.length > 0 ? (
+                                <p
+                                  className="text-[11px] text-slate-400 truncate mt-0.5"
+                                  title={summary.items
+                                    .map(
+                                      (it) => `${it.artist} - ${it.albumTitle}`
+                                    )
+                                    .filter(Boolean)
+                                    .join(', ')}
+                                >
+                                  {summary.items
+                                    .map((it) => it.artist)
+                                    .filter(Boolean)
+                                    .slice(0, 3)
+                                    .join(' • ')}
+                                </p>
+                              ) : null}
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <h3 className="text-sm font-semibold text-white truncate flex items-center gap-1.5 min-w-0">
+                            {ship.isCustomName && (
+                              <span
+                                title="Nome personalizado travado"
+                                className="inline-flex shrink-0"
+                              >
+                                <Lock className="w-3 h-3 text-amber-400" />
+                              </span>
+                            )}
+                            <span className="truncate">{ship.name}</span>
+                          </h3>
+                        );
+                      })()}
                     </div>
 
                     <span
