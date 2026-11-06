@@ -28,6 +28,7 @@ import {
   ImageIcon,
   ArrowUpDown,
   Layers,
+  FileText,
 } from 'lucide-react';
 import {
   Shipment,
@@ -60,6 +61,7 @@ interface PackageDetailViewProps {
   isFetchingCoversBatch: boolean;
   onFetchAllCovers: () => void;
   onOpenNewShipmentModal: () => void;
+  onOpenReportModal?: (shipmentId: string) => void;
   onEditShipment: (shipment: Shipment) => void;
   onDuplicateShipment: (shipment: Shipment) => void;
   onDeleteShipment: (shipment: Shipment) => void;
@@ -90,6 +92,7 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
   isFetchingCoversBatch,
   onFetchAllCovers,
   onOpenNewShipmentModal,
+  onOpenReportModal,
   onEditShipment,
   onDuplicateShipment,
   onDeleteShipment,
@@ -356,6 +359,22 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                       Estimar MG ({formatBrl(selectedSummary.estimatedTaxMgBrl)})
                     </span>
                   </button>
+
+                  {(selectedSummary.shipment.status === 'tributado' ||
+                    selectedSummary.shipment.status === 'entregue') &&
+                    onOpenReportModal && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenReportModal(selectedSummary.shipment.id)
+                        }
+                        title="Ver relatório detalhado de custos e impressão/PDF deste pacote"
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 px-2.5 py-1.5 text-xs font-semibold text-indigo-300 transition whitespace-nowrap cursor-pointer"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Relatório</span>
+                      </button>
+                    )}
 
                   <button
                     onClick={() => onEditShipment(selectedSummary.shipment)}

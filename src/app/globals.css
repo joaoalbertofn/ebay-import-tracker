@@ -9,3 +9,50 @@ body {
   background-color: #020617;
   color: #f8fafc;
 }
+
+/* Otimizações para Impressão e PDF */
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  html, body {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Oculta tudo na árvore fora do modal de relatório quando ele estiver aberto */
+  body:has(#report-modal-root) > *:not(:has(#report-modal-root)) {
+    display: none !important;
+  }
+
+  #report-modal-root {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+
+  @page {
+    margin: 10mm;
+    size: A4 portrait;
+  }
+
+  .print-page-break {
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .print-avoid-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}
+

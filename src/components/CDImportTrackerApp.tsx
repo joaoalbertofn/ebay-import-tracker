@@ -36,6 +36,7 @@ import {
   ShipmentModal,
 } from '@/components/ShipmentModal';
 import { CDModal } from '@/components/CDModal';
+import { ShipmentReportModal } from '@/components/modals/ShipmentReportModal';
 import { DemandRadarView } from '@/components/DemandRadarView';
 import {
   Disc3,
@@ -120,6 +121,9 @@ export default function CDImportTrackerApp() {
 
   const [isCDModalOpen, setIsCDModalOpen] = useState(false);
   const [editingCD, setEditingCD] = useState<CDItem | null>(null);
+
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportModalShipmentId, setReportModalShipmentId] = useState<string | undefined>(undefined);
 
   // Modal de Confirmação Customizado (substitui window.confirm)
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>({
@@ -1078,6 +1082,10 @@ export default function CDImportTrackerApp() {
         activeMainTab={activeMainTab}
         setActiveMainTab={setActiveMainTab}
         packagesCount={shipments.length}
+        onOpenReportModal={() => {
+          setReportModalShipmentId(selectedShipmentId || undefined);
+          setIsReportModalOpen(true);
+        }}
         onForceSync={forceSync}
         onExportBackup={handleExportBackup}
         fileInputRef={fileInputRef}
@@ -1243,6 +1251,10 @@ export default function CDImportTrackerApp() {
               setEditingShipment(null);
               setIsShipmentModalOpen(true);
             }}
+            onOpenReportModal={(shipmentId) => {
+              setReportModalShipmentId(shipmentId);
+              setIsReportModalOpen(true);
+            }}
             onEditShipment={(shipment) => {
               setEditingShipment(shipment);
               setIsShipmentModalOpen(true);
@@ -1329,6 +1341,15 @@ export default function CDImportTrackerApp() {
         onClose={() =>
           setConfirmDialog((prev) => ({ ...prev, isOpen: false }))
         }
+      />
+
+      {/* POP-UP 4: MODAL DE RELATÓRIO DE CUSTOS E IMPRESSÃO / PDF */}
+      <ShipmentReportModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        shipments={shipments}
+        items={cdItems}
+        defaultSelectedShipmentId={reportModalShipmentId}
       />
     </div>
   );

@@ -5,6 +5,7 @@ import {
   CloudOff,
   Disc3,
   Download,
+  FileText,
   Flame,
   Loader2,
   Package,
@@ -27,6 +28,7 @@ interface TrackerHeaderProps {
   activeMainTab: 'packages' | 'collection';
   setActiveMainTab: (tab: 'packages' | 'collection') => void;
   packagesCount: number;
+  onOpenReportModal: () => void;
   onForceSync: () => void;
   onExportBackup: () => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
@@ -45,6 +47,7 @@ export function TrackerHeader({
   activeMainTab,
   setActiveMainTab,
   packagesCount,
+  onOpenReportModal,
   onForceSync,
   onExportBackup,
   fileInputRef,
@@ -190,6 +193,16 @@ export function TrackerHeader({
                 <span className="hidden 2xl:inline">Reenviar Sync</span>
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={onOpenReportModal}
+              title="Gerar relatório de fechamento de custos e impressão/PDF"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600/90 hover:bg-indigo-600 border border-indigo-500/50 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm shadow-indigo-500/20 transition cursor-pointer"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Relatório</span>
+            </button>
 
             <button
               onClick={onExportBackup}

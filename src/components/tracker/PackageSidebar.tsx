@@ -16,7 +16,6 @@ import {
   ChevronRight,
   Sparkles,
   Plane,
-  Truck,
 } from 'lucide-react';
 import { Shipment, ShipmentStatus, ShipmentSummary } from '@/types/tracker';
 import { STATUS_LABELS } from '@/components/ShipmentModal';
