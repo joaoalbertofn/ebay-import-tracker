@@ -123,6 +123,12 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
   const [inlineArtist, setInlineArtist] = useState('');
   const [inlineAlbum, setInlineAlbum] = useState('');
 
+  // Pacotes em trânsito, tributados ou entregues já foram fechados e não podem ter CDs alterados/adicionados
+  const isLockedPackage =
+    selectedSummary?.shipment.status === 'em_transito' ||
+    selectedSummary?.shipment.status === 'tributado' ||
+    selectedSummary?.shipment.status === 'entregue';
+
   const handleCommitTitle = (shipment: Shipment) => {
     const trimmed = titleDraft.trim();
     setIsEditingTitle(false);
@@ -334,20 +340,27 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
 
                 {/* Ações do Pacote */}
                 <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                  {(selectedSummary.shipment.status !== 'comprado' ||
-                    selectedSummary.shipment.consolidationMode === 'group_only' ||
-                    selectedSummary.shipment.consolidationMode === 'unpack_and_repack' ||
-                    selectedSummary.items.some((cd) => cd.isConsolidated)) && (
-                    <button
-                      type="button"
-                      onClick={() => onRevertPackageToSingle(selectedSummary.shipment)}
-                      title="Desfaz o status de consolidado deste pacote para que seus CDs fiquem disponíveis novamente para consolidação"
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-600/80 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition whitespace-nowrap"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5 text-sky-400" />
-                      <span>Voltar p/ Único</span>
-                    </button>
-                  )}
+                  {!isLockedPackage &&
+                    (selectedSummary.shipment.status !== 'comprado' ||
+                      selectedSummary.shipment.consolidationMode ===
+                        'group_only' ||
+                      selectedSummary.shipment.consolidationMode ===
+                        'unpack_and_repack' ||
+                      selectedSummary.items.some(
+                        (cd) => cd.isConsolidated
+                      )) && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onRevertPackageToSingle(selectedSummary.shipment)
+                        }
+                        title="Desfaz o status de consolidado deste pacote para que seus CDs fiquem disponíveis novamente para consolidação"
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-600/80 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition whitespace-nowrap"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 text-sky-400" />
+                        <span>Voltar p/ Único</span>
+                      </button>
+                    )}
 
                   <button
                     onClick={() => onApplyMgTaxEstimate(selectedSummary)}
@@ -930,13 +943,14 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                   )
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Toque no título de qualquer álbum para renomear ou na capa
-                  para escolher outra arte.
+                  {isLockedPackage
+                    ? 'Pacote finalizado. Visualização e rateios dos itens fixados.'
+                    : 'Toque no título de qualquer álbum para renomear ou na capa para escolher outra arte.'}
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 shrink-0">
-                {selectedSummary.items.length > 0 && (
+                {!isLockedPackage && selectedSummary.items.length > 0 && (
                   <button
                     onClick={onFetchAllCovers}
                     disabled={isFetchingCoversBatch}
@@ -984,13 +998,15 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                   </select>
                 </div>
 
-                <button
-                  onClick={onOpenAddCD}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-purple-600/25 transition ml-auto sm:ml-0 whitespace-nowrap"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Adicionar CD / Vinil</span>
-                </button>
+                {!isLockedPackage && (
+                  <button
+                    onClick={onOpenAddCD}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-purple-600/25 transition ml-auto sm:ml-0 whitespace-nowrap"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Adicionar CD / Vinil</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1007,13 +1023,15 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                     rateio em tempo real.
                   </p>
                 </div>
-                <button
-                  onClick={onOpenAddCD}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 px-4 py-2 text-xs font-semibold text-white transition"
-                >
-                  <Plus className="w-4 h-4" />
-                  Adicionar Primeiro CD
-                </button>
+                {!isLockedPackage && (
+                  <button
+                    onClick={onOpenAddCD}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 px-4 py-2 text-xs font-semibold text-white transition"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Adicionar Primeiro CD
+                  </button>
+                )}
               </div>
             ) : (
               <>
@@ -1033,17 +1051,27 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                       >
                         <div className="flex items-start gap-3">
                           {/* Capa */}
-                          <button
-                            type="button"
-                            onClick={() => onEditCD(item)}
-                            className="relative h-14 w-14 rounded-xl bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0 shadow"
-                          >
-                            <AlbumCover
-                              src={item.coverUrl}
-                              alt={item.albumTitle}
-                              iconClassName="w-6 h-6 text-slate-600"
-                            />
-                          </button>
+                          {!isLockedPackage ? (
+                            <button
+                              type="button"
+                              onClick={() => onEditCD(item)}
+                              className="relative h-14 w-14 rounded-xl bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0 shadow"
+                            >
+                              <AlbumCover
+                                src={item.coverUrl}
+                                alt={item.albumTitle}
+                                iconClassName="w-6 h-6 text-slate-600"
+                              />
+                            </button>
+                          ) : (
+                            <div className="relative h-14 w-14 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center overflow-hidden shrink-0 shadow">
+                              <AlbumCover
+                                src={item.coverUrl}
+                                alt={item.albumTitle}
+                                iconClassName="w-6 h-6 text-slate-600"
+                              />
+                            </div>
+                          )}
 
                           {/* Artista, Álbum e Badges */}
                           <div className="flex-1 min-w-0">
@@ -1097,21 +1125,29 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                                 </div>
 
                                 <div
-                                  onClick={() => {
-                                    setInlineEditingId(item.id);
-                                    setInlineArtist(item.artist);
-                                    setInlineAlbum(
-                                      item.albumTitle.startsWith('CD #')
-                                        ? ''
-                                        : item.albumTitle
-                                    );
-                                  }}
-                                  className="text-xs text-slate-300 mt-0.5 flex items-center gap-1.5 cursor-pointer"
+                                  onClick={
+                                    !isLockedPackage
+                                      ? () => {
+                                          setInlineEditingId(item.id);
+                                          setInlineArtist(item.artist);
+                                          setInlineAlbum(
+                                            item.albumTitle.startsWith('CD #')
+                                              ? ''
+                                              : item.albumTitle
+                                          );
+                                        }
+                                      : undefined
+                                  }
+                                  className={`text-xs text-slate-300 mt-0.5 flex items-center gap-1.5 ${
+                                    !isLockedPackage ? 'cursor-pointer' : ''
+                                  }`}
                                 >
                                   <span className="truncate">
                                     {item.albumTitle}
                                   </span>
-                                  <Edit3 className="w-3 h-3 text-indigo-400 shrink-0" />
+                                  {!isLockedPackage && (
+                                    <Edit3 className="w-3 h-3 text-indigo-400 shrink-0" />
+                                  )}
                                 </div>
 
                                 <div className="flex flex-wrap items-center gap-1.5 mt-2">
@@ -1202,33 +1238,35 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-1 shrink-0">
-                            {canRevertCd && (
+                          {!isLockedPackage && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              {canRevertCd && (
+                                <button
+                                  type="button"
+                                  onClick={() => onExtractCdToSingle(item)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-sky-300 hover:text-white bg-slate-900 border border-slate-800"
+                                  title="Voltar este CD para Comprado (Pacote Único)"
+                                >
+                                  <RotateCcw className="w-3 h-3" />
+                                  <span>Pacote Único</span>
+                                </button>
+                              )}
                               <button
-                                type="button"
-                                onClick={() => onExtractCdToSingle(item)}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-sky-300 hover:text-white bg-slate-900 border border-slate-800"
-                                title="Voltar este CD para Comprado (Pacote Único)"
+                                onClick={() => onEditCD(item)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-white bg-slate-900"
+                                title="Editar CD"
                               >
-                                <RotateCcw className="w-3 h-3" />
-                                <span>Pacote Único</span>
+                                <Edit3 className="w-3.5 h-3.5" />
                               </button>
-                            )}
-                            <button
-                              onClick={() => onEditCD(item)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-white bg-slate-900"
-                              title="Editar CD"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => onDeleteCD(item)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 bg-slate-900"
-                              title="Excluir CD"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                              <button
+                                onClick={() => onDeleteCD(item)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 bg-slate-900"
+                                title="Excluir CD"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -1244,7 +1282,9 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                         <th className="py-3 px-3 text-right">Valor do CD</th>
                         <th className="py-3 px-3 text-right">+ Rateio Unit.</th>
                         <th className="py-3 px-4 text-right">Custo Final (BRL)</th>
-                        <th className="py-3 px-3 text-center">Ações</th>
+                        {!isLockedPackage && (
+                          <th className="py-3 px-3 text-center">Ações</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/70 text-sm">
@@ -1276,18 +1316,28 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                             {/* Coluna 1: Capa + Artista, Álbum e Tags de Origem/Embalagem */}
                             <td className="py-3 px-4 w-full max-w-0">
                               <div className="flex items-center gap-3">
-                                <button
-                                  type="button"
-                                  onClick={() => onEditCD(item)}
-                                  title="Clique para trocar ou buscar a capa deste álbum"
-                                  className="group relative h-12 w-12 rounded-lg bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0 shadow hover:border-indigo-400 transition"
-                                >
-                                  <AlbumCover
-                                    src={item.coverUrl}
-                                    alt={item.albumTitle}
-                                    iconClassName="w-5 h-5 text-slate-600 group-hover:text-indigo-400 transition"
-                                  />
-                                </button>
+                                {!isLockedPackage ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => onEditCD(item)}
+                                    title="Clique para trocar ou buscar a capa deste álbum"
+                                    className="group relative h-12 w-12 rounded-lg bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0 shadow hover:border-indigo-400 transition"
+                                  >
+                                    <AlbumCover
+                                      src={item.coverUrl}
+                                      alt={item.albumTitle}
+                                      iconClassName="w-5 h-5 text-slate-600 group-hover:text-indigo-400 transition"
+                                    />
+                                  </button>
+                                ) : (
+                                  <div className="relative h-12 w-12 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center overflow-hidden shrink-0 shadow">
+                                    <AlbumCover
+                                      src={item.coverUrl}
+                                      alt={item.albumTitle}
+                                      iconClassName="w-5 h-5 text-slate-600"
+                                    />
+                                  </div>
+                                )}
 
                                 <div className="min-w-0 flex-1">
                                   {isInlineEditing ? (
@@ -1426,20 +1476,33 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                                       </div>
 
                                       <div
-                                        onClick={() => {
-                                          setInlineEditingId(item.id);
-                                          setInlineArtist(item.artist);
-                                          setInlineAlbum(
-                                            item.albumTitle.startsWith('CD #')
-                                              ? ''
-                                              : item.albumTitle
-                                          );
-                                        }}
-                                        title="Clique para renomear o álbum e buscar a capa"
-                                        className="text-xs text-slate-300 hover:text-indigo-300 cursor-pointer flex items-center gap-1.5 mt-0.5 group/title"
+                                        onClick={
+                                          !isLockedPackage
+                                            ? () => {
+                                                setInlineEditingId(item.id);
+                                                setInlineArtist(item.artist);
+                                                setInlineAlbum(
+                                                  item.albumTitle.startsWith('CD #')
+                                                    ? ''
+                                                    : item.albumTitle
+                                                );
+                                              }
+                                            : undefined
+                                        }
+                                        title={
+                                          !isLockedPackage
+                                            ? 'Clique para renomear o álbum e buscar a capa'
+                                            : undefined
+                                        }
+                                        className={`text-xs text-slate-300 flex items-center gap-1.5 mt-0.5 group/title ${
+                                          !isLockedPackage
+                                            ? 'hover:text-indigo-300 cursor-pointer'
+                                            : ''
+                                        }`}
                                       >
                                         <span
                                           className={`truncate ${
+                                            !isLockedPackage &&
                                             item.albumTitle.startsWith('CD #')
                                               ? 'underline decoration-dashed decoration-indigo-400/60 text-indigo-200'
                                               : ''
@@ -1447,7 +1510,9 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                                         >
                                           {item.albumTitle}
                                         </span>
-                                        <Edit3 className="w-3 h-3 opacity-0 group-hover/title:opacity-100 text-indigo-400 transition shrink-0" />
+                                        {!isLockedPackage && (
+                                          <Edit3 className="w-3 h-3 opacity-0 group-hover/title:opacity-100 text-indigo-400 transition shrink-0" />
+                                        )}
                                       </div>
                                     </div>
                                   )}
@@ -1496,37 +1561,39 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                             </td>
 
                             {/* Coluna 5: Ações */}
-                            <td className="py-3 px-3 text-center whitespace-nowrap">
-                              <div className="inline-flex items-center gap-1 whitespace-nowrap">
-                                {canRevertCd && (
+                            {!isLockedPackage && (
+                              <td className="py-3 px-3 text-center whitespace-nowrap">
+                                <div className="inline-flex items-center gap-1 whitespace-nowrap">
+                                  {canRevertCd && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onExtractCdToSingle(item)}
+                                      title="Desmembrar este CD em um Pacote Único separado"
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-sky-300 hover:text-white hover:bg-slate-800 border border-slate-800 transition whitespace-nowrap"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                                      <span className="hidden xl:inline">
+                                        Pacote Único
+                                      </span>
+                                    </button>
+                                  )}
                                   <button
-                                    type="button"
-                                    onClick={() => onExtractCdToSingle(item)}
-                                    title="Desmembrar este CD em um Pacote Único separado"
-                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-sky-300 hover:text-white hover:bg-slate-800 border border-slate-800 transition whitespace-nowrap"
+                                    onClick={() => onEditCD(item)}
+                                    title="Editar detalhes e escolher capa do álbum"
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
                                   >
-                                    <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-                                    <span className="hidden xl:inline">
-                                      Pacote Único
-                                    </span>
+                                    <Edit3 className="w-4 h-4" />
                                   </button>
-                                )}
-                                <button
-                                  onClick={() => onEditCD(item)}
-                                  title="Editar detalhes e escolher capa do álbum"
-                                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-                                >
-                                  <Edit3 className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => onDeleteCD(item)}
-                                  title="Remover CD do pacote"
-                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
+                                  <button
+                                    onClick={() => onDeleteCD(item)}
+                                    title="Remover CD do pacote"
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
