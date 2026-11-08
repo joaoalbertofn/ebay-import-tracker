@@ -26,6 +26,8 @@ interface GlobalCollectionViewProps {
   totalInvestedBrl?: number;
   totalPhysicalDiscs?: number;
   avgPerItemBrl?: number;
+  hideGlobalValues?: boolean;
+  selectedShipmentId?: string | null;
   searchQuery: string;
   onSearchChange: (val: string) => void;
   statusFilter: ShipmentStatus | 'ALL';
@@ -43,6 +45,8 @@ export function GlobalCollectionView({
   totalInvestedBrl = 0,
   totalPhysicalDiscs = 0,
   avgPerItemBrl = 0,
+  hideGlobalValues = false,
+  selectedShipmentId,
   searchQuery,
   onSearchChange,
   statusFilter,
@@ -73,8 +77,14 @@ export function GlobalCollectionView({
             <span className="text-[10px] uppercase tracking-wider text-slate-400 block">
               Investido Total
             </span>
-            <span className="font-mono font-bold text-sm sm:text-base text-white">
-              {formatBrl(totalInvestedBrl)}
+            <span
+              className={`font-mono font-bold text-sm sm:text-base ${
+                hideGlobalValues
+                  ? 'text-slate-500 select-none tracking-wider'
+                  : 'text-white'
+              }`}
+            >
+              {hideGlobalValues ? 'R$ •••••' : formatBrl(totalInvestedBrl)}
             </span>
           </div>
           <div className="rounded-xl bg-slate-900/75 border border-slate-800 p-3">
@@ -92,8 +102,14 @@ export function GlobalCollectionView({
             <span className="text-[10px] uppercase tracking-wider text-slate-400 block">
               Média / Item
             </span>
-            <span className="font-mono font-bold text-sm sm:text-base text-emerald-400">
-              {formatBrl(avgPerItemBrl)}
+            <span
+              className={`font-mono font-bold text-sm sm:text-base ${
+                hideGlobalValues
+                  ? 'text-slate-500 select-none tracking-wider'
+                  : 'text-emerald-400'
+              }`}
+            >
+              {hideGlobalValues ? 'R$ •••••' : formatBrl(avgPerItemBrl)}
             </span>
           </div>
         </div>
@@ -243,8 +259,18 @@ export function GlobalCollectionView({
                           <span className="font-semibold text-sm text-white truncate">
                             {item.artist}
                           </span>
-                          <span className="font-mono font-bold text-sm text-emerald-400 shrink-0">
-                            {formatBrl(item.finalCostBrl)}
+                          <span
+                            className={`font-mono font-bold text-sm shrink-0 ${
+                              hideGlobalValues &&
+                              shipment.id !== selectedShipmentId
+                                ? 'text-slate-500 select-none tracking-wider text-xs'
+                                : 'text-emerald-400'
+                            }`}
+                          >
+                            {hideGlobalValues &&
+                            shipment.id !== selectedShipmentId
+                              ? 'R$ •••••'
+                              : formatBrl(item.finalCostBrl)}
                           </span>
                         </div>
                         <p className="text-xs text-slate-300 truncate">
@@ -371,29 +397,54 @@ export function GlobalCollectionView({
                         </td>
 
                         <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
-                          <div className="text-xs font-medium text-slate-200">
-                            {formatOriginalCurrency(
-                              item.unitOriginalValue,
-                              shipment.currency
-                            )}
-                          </div>
-                          <div className="text-[11px] text-slate-400">
-                            {formatBrl(item.directCostBrl)}
-                          </div>
+                          {hideGlobalValues &&
+                          shipment.id !== selectedShipmentId ? (
+                            <span className="text-xs text-slate-500 select-none tracking-wider">
+                              •••••
+                            </span>
+                          ) : (
+                            <>
+                              <div className="text-xs font-medium text-slate-200">
+                                {formatOriginalCurrency(
+                                  item.unitOriginalValue,
+                                  shipment.currency
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-400">
+                                {formatBrl(item.directCostBrl)}
+                              </div>
+                            </>
+                          )}
                         </td>
 
                         <td className="py-3 px-3 text-right font-mono text-xs text-indigo-300 whitespace-nowrap">
-                          + {formatBrl(item.allocatedIndirectCostBrl)}
+                          {hideGlobalValues &&
+                          shipment.id !== selectedShipmentId ? (
+                            <span className="text-slate-500 select-none tracking-wider">
+                              R$ •••••
+                            </span>
+                          ) : (
+                            <>+ {formatBrl(item.allocatedIndirectCostBrl)}</>
+                          )}
                         </td>
 
                         <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <div className="font-mono font-bold text-sm text-emerald-400">
-                            {formatBrl(item.finalCostBrl)}
-                          </div>
-                          {item.discCount > 1 && (
-                            <div className="text-[10px] font-mono text-slate-400">
-                              ({formatBrl(item.costPerDiscBrl)} / disco)
+                          {hideGlobalValues &&
+                          shipment.id !== selectedShipmentId ? (
+                            <div className="font-mono font-bold text-xs text-slate-500 select-none tracking-wider">
+                              R$ •••••
                             </div>
+                          ) : (
+                            <>
+                              <div className="font-mono font-bold text-sm text-emerald-400">
+                                {formatBrl(item.finalCostBrl)}
+                              </div>
+                              {item.discCount > 1 && (
+                                <div className="text-[10px] font-mono text-slate-400">
+                                  ({formatBrl(item.costPerDiscBrl)} / disco)
+                                </div>
+                              )}
+                            </>
                           )}
                         </td>
                       </tr>

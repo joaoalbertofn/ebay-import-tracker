@@ -89,6 +89,44 @@ export default function CDImportTrackerApp() {
     'list'
   );
 
+  // Modo Gravação / Privacidade: oculta o total investido geral e os valores dos demais pacotes,
+  // mantendo visíveis apenas os preços, CDs e cálculos do pacote aberto no momento.
+  const [hideGlobalValues, setHideGlobalValues] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const saved = window.localStorage.getItem('cd_tracker_hide_global_values');
+      if (saved === 'true') {
+        setHideGlobalValues(true);
+      }
+    } catch {
+      // ignora erro de leitura no localStorage
+    }
+  }, []);
+
+  const handleToggleHideGlobalValues = () => {
+    setHideGlobalValues((prev) => {
+      const next = !prev;
+      try {
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(
+            'cd_tracker_hide_global_values',
+            String(next)
+          );
+        }
+      } catch {
+        // ignora erro de escrita no localStorage
+      }
+      showToast(
+        next
+          ? 'Modo Gravação ativado: valores gerais ocultos (exibindo apenas o pacote aberto).'
+          : 'Valores gerais visíveis novamente.'
+      );
+      return next;
+    });
+  };
+
   // Busca e Ordenação (Aba Pacotes)
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<ShipmentStatus | 'ALL'>(
@@ -1096,6 +1134,8 @@ export default function CDImportTrackerApp() {
         packageWorkspaceViewMode={packageWorkspaceViewMode}
         setPackageWorkspaceViewMode={setPackageWorkspaceViewMode}
         packagesCount={shipments.length}
+        hideGlobalValues={hideGlobalValues}
+        onToggleHideGlobalValues={handleToggleHideGlobalValues}
         onOpenReportModal={() => {
           setReportModalShipmentId(selectedShipmentId || undefined);
           setIsReportModalOpen(true);
@@ -1121,6 +1161,8 @@ export default function CDImportTrackerApp() {
               totalInvestedBrl={globalStats.totalInvestedBrl}
               totalPhysicalDiscs={globalStats.totalPhysicalDiscs}
               avgPerItemBrl={globalStats.avgPerItemBrl}
+              hideGlobalValues={hideGlobalValues}
+              selectedShipmentId={selectedShipmentId}
               searchQuery={collectionSearch}
               onSearchChange={setCollectionSearch}
               statusFilter={collectionStatusFilter}
@@ -1143,6 +1185,7 @@ export default function CDImportTrackerApp() {
                 shipments={shipments}
                 summariesMap={summariesMap}
                 selectedShipmentId={selectedShipmentId}
+                hideGlobalValues={hideGlobalValues}
                 onSelectShipmentFromMap={(shipId) => {
                   setSelectedShipmentId(shipId);
                 }}
@@ -1228,6 +1271,7 @@ export default function CDImportTrackerApp() {
                 selectedShipmentId={selectedShipmentId}
                 forwarderPackageIdsSet={forwarderPackageIdsSet}
                 checkedPackageIds={checkedPackageIds}
+                hideGlobalValues={hideGlobalValues}
                 onToggleCheckPackage={handleToggleCheckPackage}
                 onSelectShipment={(shipId) => {
                   setSelectedShipmentId(shipId);

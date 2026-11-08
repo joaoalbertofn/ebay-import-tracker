@@ -36,6 +36,7 @@ interface WorldMapViewProps {
   shipments: Shipment[];
   summariesMap: Map<string, ShipmentSummary>;
   selectedShipmentId: string | null;
+  hideGlobalValues?: boolean;
   onSelectShipmentFromMap: (shipmentId: string) => void;
   onSwitchToListView: () => void;
   renderSelectedPackageDetail?: () => React.ReactNode;
@@ -86,6 +87,7 @@ function buildCurvedSvgPath(
 export const WorldMapView: React.FC<WorldMapViewProps> = ({
   shipments,
   summariesMap,
+  hideGlobalValues = false,
   onSelectShipmentFromMap,
   onSwitchToListView,
   renderSelectedPackageDetail,
@@ -805,10 +807,18 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
                                     </span>
                                   )}
                                 </span>
-                                <span className="font-mono font-bold text-emerald-400">
-                                  {formatBrl(
-                                    summary?.totalShipmentCostBrl || 0
-                                  )}
+                                <span
+                                  className={`font-mono font-bold ${
+                                    hideGlobalValues && !isModalOpen
+                                      ? 'text-slate-500 select-none tracking-wider'
+                                      : 'text-emerald-400'
+                                  }`}
+                                >
+                                  {hideGlobalValues && !isModalOpen
+                                    ? 'R$ •••••'
+                                    : formatBrl(
+                                        summary?.totalShipmentCostBrl || 0
+                                      )}
                                 </span>
                               </div>
                             </div>

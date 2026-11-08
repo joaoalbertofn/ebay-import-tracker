@@ -47,6 +47,7 @@ interface PackageSidebarProps {
   selectedShipmentId: string | null;
   forwarderPackageIdsSet: Set<string>;
   checkedPackageIds: Set<string>;
+  hideGlobalValues?: boolean;
   onToggleCheckPackage: (e: React.MouseEvent, shipId: string) => void;
   onSelectShipment: (shipId: string) => void;
 }
@@ -70,6 +71,7 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
   selectedShipmentId,
   forwarderPackageIdsSet,
   checkedPackageIds,
+  hideGlobalValues = false,
   onToggleCheckPackage,
   onSelectShipment,
 }) => {
@@ -464,8 +466,21 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-sm font-bold font-mono text-emerald-400">
-                        {formatBrl(summary?.totalShipmentCostBrl || 0)}
+                      <span
+                        className={`text-sm font-bold font-mono ${
+                          hideGlobalValues && !isSelected
+                            ? 'text-slate-500 select-none tracking-wider text-xs'
+                            : 'text-emerald-400'
+                        }`}
+                        title={
+                          hideGlobalValues && !isSelected
+                            ? 'Valor oculto no Modo Gravação (clique para abrir o pacote e ver os valores)'
+                            : undefined
+                        }
+                      >
+                        {hideGlobalValues && !isSelected
+                          ? 'R$ •••••'
+                          : formatBrl(summary?.totalShipmentCostBrl || 0)}
                       </span>
                       <ChevronRight className="w-4 h-4 text-slate-500 lg:hidden" />
                     </div>

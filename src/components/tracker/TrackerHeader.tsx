@@ -6,6 +6,8 @@ import {
   Database,
   Disc3,
   Download,
+  Eye,
+  EyeOff,
   FileText,
   Flame,
   Globe,
@@ -32,6 +34,8 @@ interface TrackerHeaderProps {
   packageWorkspaceViewMode: 'list' | 'map';
   setPackageWorkspaceViewMode: (mode: 'list' | 'map') => void;
   packagesCount: number;
+  hideGlobalValues?: boolean;
+  onToggleHideGlobalValues?: () => void;
   onOpenReportModal: () => void;
   onForceSync: () => void;
   onExportBackup: () => void;
@@ -53,6 +57,8 @@ export function TrackerHeader({
   packageWorkspaceViewMode,
   setPackageWorkspaceViewMode,
   packagesCount,
+  hideGlobalValues = false,
+  onToggleHideGlobalValues,
   onOpenReportModal,
   onForceSync,
   onExportBackup,
@@ -186,8 +192,16 @@ export function TrackerHeader({
           <div className="hidden xl:flex items-center gap-3.5 rounded-lg bg-slate-950/90 border border-slate-800 px-3 py-1 text-[11px]">
             <div className="flex items-center gap-1.5">
               <span className="text-slate-400">Investido:</span>
-              <span className="font-mono font-bold text-white text-xs">
-                {formatBrl(globalStats.totalInvestedBrl)}
+              <span
+                className={`font-mono font-bold text-xs ${
+                  hideGlobalValues
+                    ? 'text-slate-500 select-none tracking-wider'
+                    : 'text-white'
+                }`}
+              >
+                {hideGlobalValues
+                  ? 'R$ •••••'
+                  : formatBrl(globalStats.totalInvestedBrl)}
               </span>
             </div>
             <div className="h-3.5 w-px bg-slate-800" />
@@ -203,13 +217,55 @@ export function TrackerHeader({
             <div className="h-3.5 w-px bg-slate-800" />
             <div className="flex items-center gap-1.5">
               <span className="text-slate-400">Média/CD:</span>
-              <span className="font-mono font-bold text-emerald-400 text-xs">
-                {formatBrl(globalStats.avgPerItemBrl)}
+              <span
+                className={`font-mono font-bold text-xs ${
+                  hideGlobalValues
+                    ? 'text-slate-500 select-none tracking-wider'
+                    : 'text-emerald-400'
+                }`}
+              >
+                {hideGlobalValues
+                  ? 'R$ •••••'
+                  : formatBrl(globalStats.avgPerItemBrl)}
               </span>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5">
+            {/* Botão Modo Gravação / Privacidade (Mostrar ou ocultar valores globais e de outros pacotes) */}
+            {onToggleHideGlobalValues && (
+              <button
+                type="button"
+                onClick={onToggleHideGlobalValues}
+                title={
+                  hideGlobalValues
+                    ? 'Modo Gravação ativo: ocultando o total geral e os valores dos demais pacotes (exibindo apenas o pacote aberto). Clique para mostrar tudo.'
+                    : 'Modo Gravação/Privacidade: ocultar o total investido geral e os valores dos outros pacotes, mantendo visíveis apenas os valores do pacote aberto no momento'
+                }
+                aria-label={
+                  hideGlobalValues
+                    ? 'Mostrar valores gerais'
+                    : 'Ocultar valores gerais (Modo Gravação)'
+                }
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition cursor-pointer ${
+                  hideGlobalValues
+                    ? 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/40 text-amber-300 shadow-sm shadow-amber-950/30'
+                    : 'bg-slate-800/90 hover:bg-slate-700 border-slate-700 text-slate-300 hover:text-white'
+                }`}
+              >
+                {hideGlobalValues ? (
+                  <>
+                    <EyeOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span className="hidden md:inline">Modo Gravação</span>
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span className="hidden 2xl:inline">Privacidade</span>
+                  </>
+                )}
+              </button>
+            )}
             {/* Indicador Visual de Status do Cloud Sync */}
             {cloudSyncStatus === 'saving' && (
               <span
