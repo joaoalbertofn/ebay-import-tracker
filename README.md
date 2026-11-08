@@ -32,17 +32,31 @@ Aplicação web **Single Page Application (SPA)** desenvolvida com **Next.js 16 
 - **Aba "Todos os CDs da Coleção" (Visão Global):**
   - Consolida todos os CDs importados em uma única tabela comparativa com **busca dedicada exclusivamente por nome do artista ou do álbum**, filtro por status do pacote e ordenação por Artista, Álbum, Menor/Maior Custo Final ou Mais Recentes.
 
-### 2. Cadastro Rápido & Consolidação Inteligente no Redirecionador
+### 2. Mapa-Múndi Interativo ("Onde está cada Pacote")
+- **Toggle Lista vs. Mapa-Múndi:** Alterne com 1 clique entre a listagem Master/Detail tradicional e um **Mapa-Múndi vetorial de alta precisão** ocupando toda a área de trabalho.
+- **Pilhas em Cascata por Ponto Geográfico (`StackCluster`):**
+  - Os pacotes são agrupados automaticamente de acordo com seu `status`, país de origem (`currency`) e redirecionador (`forwarderId`):
+    1. **Vendedor no País de Origem** (`Comprado` no Reino Unido, EUA, Europa ou Japão)
+    2. **Hub do Redirecionador** (`No Redirecionador` ou `Já Consolidado` na `ForwardVia`, `Send2Hub` ou `UsCloser`)
+    3. **Em Trânsito Internacional** (rota aérea sobre o Oceano Atlântico rumo ao Brasil)
+    4. **Alfândega Receita Federal** (`Tributado` em Curitiba, PR)
+    5. **Destino Final** (`Entregue` em Minas Gerais, Brasil)
+  - Pacotes que estão no mesmo ponto ficam organizados **um atrás do outro** em efeito baralho/cascata com miniaturas das capas dos álbuns; ao passar o mouse (`hover`) em qualquer carta de trás, ela sobe para a frente na hora e acende o traçado completo da sua rota no mapa.
+- **Janela Modal de Detalhes no Mapa:** Ao clicar em qualquer pacote no mapa, abre uma janela modal centralizada renderizando o componente `PackageDetailView` completo para edição imediata de status, redirecionador, peso e CDs sem sair do mapa.
+
+### 3. Redirecionadores por País, Consolidação Inteligente e Sugestor de Caixa
+- **Catálogo Extensível de Redirecionadores (`ForwardVia`, `Send2Hub`, `UsCloser`):**
+  - Arquitetura desacoplada em `src/lib/domain/forwarders.ts` com taxas de consolidação e coordenadas pré-configuradas por redirecionador (`ForwardVia UK`, `Send2Hub UK` e `UsCloser US`), facilitando a adição de novos hubs no futuro.
+  - **Regra de Consolidação Segura:** Cada pacote possui o campo `Redirecionador (Hub)`. Pacotes avulsos (`Comprado` ou `No Redirecionador`) só são liberados para consolidação quando possuem um redirecionador selecionado.
+  - **Histórico Permanente (`Passou por: ...`):** Ao consolidar pacotes, o redirecionador é herdado automaticamente e exibido no cabeçalho do pacote mesmo após enviado, tributado ou entregue no Brasil.
+- **Sugestor Inteligente de Consolidação (`Sugerir Caixa`):**
+  - Analisa o peso em `kg` (real ou estimado por disco/vinil) e sugere as melhores combinações de pacotes por faixa de peso (`0,5 kg` a `2,0 kg`) para minimizar o rateio de frete + taxas por CD, comparando tarifas entre `ForwardVia` e `Send2Hub`.
 - **Identificação Automática de Pacotes e Data Padrão:**
   - O nome do pacote é gerado e atualizado automaticamente em tempo real com base nos artistas/álbuns informados (inclusive quando consolidado), e a data da compra é preenchida automaticamente com a data do dia.
-- **Agrupamento de Pacotes Avulsos:** Ao criar ou editar um pacote, o sistema lista todas as compras com status `Comprado` ou `No Redirecionador` disponíveis para consolidação.
-- **Seleção Total ou Parcial (Desmembramento):** Permite absorver pacotes inteiros ou selecionar CDs específicos de um lote, transferindo proporcionalmente o frete interno local.
-- **Modos de Consolidação com Presets de Taxas:**
-  - **Apenas Agrupar (`group_only`):** Mantém as caixas originais (ex: preset padrão `£ 3.00`).
-  - **Desempacotar + Agrupar (`unpack_and_repack`):** Retira das embalagens individuais para reduzir peso/volume (ex: preset padrão `£ 6.50`).
+- **Seleção Total ou Parcial (Desmembramento) & Descarte:** Permite absorver pacotes inteiros, selecionar CDs específicos de um lote ou descartar itens no redirecionador (redistribuindo o custo entre os itens mantidos).
 - **Reversão Rápida (`Voltar p/ Pacote Único`):** Permite desfazer a consolidação de um pacote inteiro ou extrair um único CD de volta para um pacote avulso com 1 clique.
 
-### 3. Regras de Negócio e Cálculos Automáticos
+### 4. Regras de Negócio e Cálculos Automáticos
 - **Regra 1 — Custo Indireto Total em BRL:**
   $$\text{Custo Indireto Total (BRL)} = \left(\text{Frete Interno Pacote} + \sum \text{Frete Interno CDs/Bundles} + \text{Taxa Redirecionador} + \text{Frete Internacional}\right) \times \text{Taxa de Câmbio} + \text{Taxa Alfandegária (BRL)}$$
 - **Regra 2 — Rateio Unitário por CD:**
@@ -54,7 +68,7 @@ Aplicação web **Single Page Application (SPA)** desenvolvida com **Next.js 16 
   $$\text{Imposto Estimado MG (BRL)} = \text{Soma dos CDs (BRL)} \times 0,9277$$
   Aplica preventivamente a estimativa de tributação e identifica o valor com a tag `(Est.)` até que o valor definitivo seja lançado.
 
-### 4. Capas Automáticas, Câmbio em Tempo Real, Autenticação e Cloud Sync
+### 5. Capas Automáticas, Câmbio em Tempo Real, Autenticação e Cloud Sync
 - **Autenticação & Isolamento por Usuário (`Clerk`):**
   - Login seguro com conta Google via `@clerk/nextjs`, mantendo coleções, pacotes e `localStorage` isolados por usuário (`userId`).
 - **Sincronização Híbrida na Nuvem (`Upstash Redis` / `Vercel KV` + JSON Local):**
@@ -67,7 +81,7 @@ Aplicação web **Single Page Application (SPA)** desenvolvida com **Next.js 16 
 - **Cotação Comercial em Tempo Real:**
   - Integração com `AwesomeAPI` (e fallback para `ExchangeRate-API`) para `GBP`, `USD`, `EUR`, `JPY` e `BRL`.
 
-### 5. Radar Top 100 Demanda & Arbitragem (`Discogs` + `Mercado Livre BR`)
+### 6. Radar Top 100 Demanda & Arbitragem (`Discogs` + `Mercado Livre BR`)
 - **Módulo dedicado de inteligência de mercado:** Consulta métricas de demanda real no **Discogs** (*Want*, *Have*, *Índice de Escassez Want/Have* e *Menor Preço Global*) combinadas com anúncios ativos e preços no **Mercado Livre Brasil** para identificar oportunidades de arbitragem e raridades em CD.
 
 ---
@@ -89,26 +103,32 @@ Aplicação web **Single Page Application (SPA)** desenvolvida com **Next.js 16 
 │   │   ├── layout.tsx                # Root Layout com ClerkProvider (pt-BR, dark mode)
 │   │   └── page.tsx                  # Página principal que renderiza o CDImportTrackerApp
 │   ├── components/
-│   │   ├── tracker/                  # Componentes do Dashboard e Visão Geral
+│   │   ├── tracker/                  # Componentes do Dashboard, Mapa-Múndi e Visão Geral
 │   │   │   ├── TrackerHeader.tsx     # Cabeçalho global, KPIs, login Clerk e status de sincronização em nuvem
-│   │   │   ├── PackageSidebar.tsx    # Coluna esquerda Master (busca, filtros de status, lista e consolidação em lote)
-│   │   │   ├── PackageDetailView.tsx # Coluna direita Detail (cards de memória de cálculo, tabela e cards responsivos)
+│   │   │   ├── PackageSidebar.tsx    # Coluna esquerda Master (toggle Lista/Mapa, busca, filtros e consolidação)
+│   │   │   ├── PackageDetailView.tsx # Coluna direita Detail (seletor/histórico de redirecionador, custos e tabela de CDs)
+│   │   │   ├── WorldMapView.tsx      # Mapa-Múndi interativo com pilhas em cascata, rotas e modal de detalhes
+│   │   │   ├── WorldMapSvgPaths.ts   # Geometria vetorial calibrada dos continentes e países de importação
+│   │   │   ├── ConsolidationAdvisorModal.tsx # Sugestor inteligente de consolidação por faixa de peso e rateio
 │   │   │   ├── GlobalCollectionView.tsx # Visão Global unificada de todos os CDs da coleção
 │   │   │   └── ConfirmModal.tsx      # Modal acessível de confirmação personalizada
 │   │   ├── modals/                   # Submódulos e seções de formulários
 │   │   │   ├── ForwarderConsolidationSection.tsx # Árvore de consolidação do redirecionador e descarte
-│   │   │   └── CDEntriesBatchTable.tsx # Tabela de lançamento de CDs, busca de capas e integração eBay
+│   │   │   ├── CDEntriesBatchTable.tsx # Tabela de lançamento de CDs, busca de capas e integração eBay
+│   │   │   └── ShipmentReportModal.tsx # Relatório detalhado de fechamento de custos e impressão/PDF
 │   │   ├── AlbumCover.tsx            # Componente de exibição de capa de álbum com fallback visual
-│   │   ├── CDImportTrackerApp.tsx    # Orquestrador SPA Master/Detail, Coleção Global e Radar
+│   │   ├── CDImportTrackerApp.tsx    # Orquestrador SPA Master/Detail, Mapa-Múndi, Coleção Global e Radar
 │   │   ├── CDModal.tsx               # Modal de edição/adição de CD avulso ou em lote
 │   │   ├── DemandRadarView.tsx       # Módulo Radar Top 100 Demanda & Arbitragem (Discogs + Mercado Livre BR)
-│   │   └── ShipmentModal.tsx         # Modal de criação/edição de pacotes
+│   │   └── ShipmentModal.tsx         # Modal de criação/edição de pacotes e seleção de redirecionador
 │   ├── hooks/
 │   │   ├── useTrackerData.ts         # Hook desacoplado de dados, cache local e persistência em nuvem
 │   │   └── useEbayQuickPaste.ts      # Hook reutilizável de importação rápida de anúncios e pedidos do eBay
 │   ├── lib/
 │   │   ├── domain/
-│   │   │   └── consolidation.ts      # Funções puras de consolidação, descarte, redistribuição e desmembramento
+│   │   │   ├── consolidation.ts      # Funções puras de consolidação, herança de redirecionador e desmembramento
+│   │   │   ├── consolidationAdvisor.ts # Algoritmo de sugestão de caixas por peso e comparativo de redirecionadores
+│   │   │   └── forwarders.ts         # Catálogo extensível de redirecionadores (ForwardVia, Send2Hub, UsCloser) e rotas do mapa
 │   │   ├── services/
 │   │   │   └── exchangeRateService.ts# Serviço isolado de cotação de moedas (AwesomeAPI / ExchangeRate-API)
 │   │   ├── storage/

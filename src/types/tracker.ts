@@ -22,6 +22,7 @@ export interface Shipment {
   shippingDate: string; // YYYY-MM-DD ou vazio se ainda não enviado
   status: ShipmentStatus;
   currency: CurrencyCode;
+  forwarderId?: string; // ID do redirecionador pelo qual o pacote está passando ou passou (ex: 'forwardvia', 'send2hub', 'uscloser')
   exchangeRate: number; // Cotação automática da Moeda Original para BRL
   exchangeRateSource?: string; // Ex: "AwesomeAPI (Comercial) às 14:30"
   consolidationMode?: ConsolidationMode; // Como este pacote foi formado no redirecionador

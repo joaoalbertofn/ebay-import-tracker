@@ -46,7 +46,13 @@ import {
   Lock,
   Unlock,
   Scale,
+  Building2,
 } from 'lucide-react';
+import {
+  getForwarderById,
+  getForwardersSortedForCurrency,
+  hasSelectedForwarder,
+} from '@/lib/domain/forwarders';
 
 
 export interface InitialCDEntry {
@@ -110,6 +116,7 @@ interface ShipmentModalProps {
     mode: Exclude<ConsolidationMode, 'direct'>;
     weightKg: number;
     internationalShipping: number;
+    forwarderId?: string;
   } | null;
 }
 
@@ -170,6 +177,7 @@ export function ShipmentModal({
   const [shippingDate, setShippingDate] = useState('');
   const [status, setStatus] = useState<ShipmentStatus>('comprado');
   const [currency, setCurrency] = useState<CurrencyCode>('GBP');
+  const [forwarderId, setForwarderId] = useState<string>('');
   const [exchangeRate, setExchangeRate] = useState<number>(
     CURRENCY_META.GBP.defaultRate
   );
@@ -219,15 +227,26 @@ export function ShipmentModal({
   const [isForwarderExpandedManual, setIsForwarderExpandedManual] =
     useState<boolean>(false);
 
-  // Filtra apenas pacotes disponíveis que não sejam o próprio pacote em edição e que tenham CDs
+  // Filtra apenas pacotes disponíveis que não sejam o próprio pacote em edição, que tenham CDs e que tenham um redirecionador selecionado
   const eligibleForwarderPackages = useMemo(() => {
     return forwarderPackages.filter(
       (fp) =>
-        fp.shipment.id !== editingShipment?.id && fp.items.length > 0
+        fp.shipment.id !== editingShipment?.id &&
+        fp.items.length > 0 &&
+        hasSelectedForwarder(fp.shipment)
     );
   }, [forwarderPackages, editingShipment]);
 
-  const syncFeePresetsToState = (curr: CurrencyCode) => {
+  const syncFeePresetsToState = (curr: CurrencyCode, targetForwarderId?: string) => {
+    const fw = getForwarderById(targetForwarderId);
+    if (fw) {
+      setGroupOnlyFeePreset(String(fw.defaultGroupOnlyFee));
+      setUnpackAndRepackFeePreset(String(fw.defaultUnpackAndRepackFee));
+      return {
+        savedGroup: fw.defaultGroupOnlyFee,
+        savedUnpack: fw.defaultUnpackAndRepackFee,
+      };
+    }
     const { savedGroup, savedUnpack } = loadFeePresetsForCurrency(curr);
     setGroupOnlyFeePreset(String(savedGroup));
     setUnpackAndRepackFeePreset(String(savedUnpack));
@@ -264,6 +283,7 @@ export function ShipmentModal({
       setShippingDate(editingShipment.shippingDate || getTodayLocalIsoDate());
       setStatus(editingShipment.status);
       setCurrency(editingShipment.currency);
+      setForwarderId(editingShipment.forwarderId || '');
       setExchangeRate(editingShipment.exchangeRate);
       setRateSourceInfo(
         editingShipment.exchangeRateSource || 'Cotação Automática'
@@ -321,7 +341,10 @@ export function ShipmentModal({
           { artist: '', albumTitle: '', unitPrice: '', discCount: 1 },
         ]);
       }
-      syncFeePresetsToState(editingShipment.currency);
+      syncFeePresetsToState(
+        editingShipment.currency,
+        editingShipment.forwarderId
+      );
     } else {
       const preselectedSet = new Set(initialPreselectedPackageIds);
       const matchingPackages =
@@ -332,12 +355,18 @@ export function ShipmentModal({
           : [];
       const initialCurr: CurrencyCode =
         matchingPackages[0]?.shipment.currency || 'GBP';
+      const initialForwarderId =
+        initialSuggestionPreset?.forwarderId ||
+        matchingPackages.find((fp) => fp.shipment.forwarderId)?.shipment
+          .forwarderId ||
+        '';
 
       setName('');
       setIsCustomName(false);
       setShippingDate(getTodayLocalIsoDate());
       setStatus('comprado');
       setCurrency(initialCurr);
+      setForwarderId(initialForwarderId);
       setExchangeRate(
         matchingPackages[0]?.shipment.exchangeRate ||
           CURRENCY_META[initialCurr].defaultRate
@@ -363,7 +392,10 @@ export function ShipmentModal({
           discCount: 1,
         },
       ]);
-      const { savedGroup, savedUnpack } = syncFeePresetsToState(initialCurr);
+      const { savedGroup, savedUnpack } = syncFeePresetsToState(
+        initialCurr,
+        initialForwarderId
+      );
       handleFetchLiveRate(initialCurr);
 
       if (matchingPackages.length > 0) {
@@ -747,8 +779,23 @@ export function ShipmentModal({
   ) => {
     if (nextSelectedSet.size > 0) {
       const pkgCount = Math.max(1, countSourcePackagesForSet(nextSelectedSet));
-      const groupOnlyUnit = parseFloat(groupOnlyFeePreset) || 0;
-      const unpackUnit = parseFloat(unpackAndRepackFeePreset) || 0;
+      let groupOnlyUnit = parseFloat(groupOnlyFeePreset) || 0;
+      let unpackUnit = parseFloat(unpackAndRepackFeePreset) || 0;
+
+      if (!forwarderId) {
+        const matchedSourceFwId = eligibleForwarderPackages.find(
+          (fp) =>
+            fp.shipment.forwarderId &&
+            fp.items.some((cd) => nextSelectedSet.has(cd.id))
+        )?.shipment.forwarderId;
+        if (matchedSourceFwId) {
+          setForwarderId(matchedSourceFwId);
+          const synced = syncFeePresetsToState(currency, matchedSourceFwId);
+          groupOnlyUnit = synced.savedGroup;
+          unpackUnit = synced.savedUnpack;
+        }
+      }
+
       const totalFee = calculateConsolidationFee(
         pkgCount,
         actionMode,
@@ -1056,6 +1103,29 @@ export function ShipmentModal({
       effectiveStatus = 'consolidado';
     }
 
+    // Resolve o redirecionador efetivo (selecionado pelo usuário ou herdado dos pacotes consolidados)
+    const inheritedFromSelectedForwarder =
+      selectedExistingCdIds.size > 0
+        ? eligibleForwarderPackages.find(
+            (fp) =>
+              fp.shipment.forwarderId &&
+              fp.items.some((cd) => selectedExistingCdIds.has(cd.id))
+          )?.shipment.forwarderId
+        : undefined;
+    const effectiveForwarderId =
+      forwarderId.trim() || inheritedFromSelectedForwarder || undefined;
+
+    // Regra: A consolidação do pacote só deve ocorrer se o campo Redirecionador estiver selecionado
+    if (
+      (selectedExistingCdIds.size > 0 || effectiveStatus === 'consolidado') &&
+      !effectiveForwarderId
+    ) {
+      alert(
+        'Selecione o Redirecionador do pacote antes de consolidar (ex: ForwardVia, Send2Hub ou UsCloser).'
+      );
+      return;
+    }
+
     // Regra: O status "Em Trânsito" só pode ser selecionado se houver código de rastreamento para o Brasil
     if (effectiveStatus === 'em_transito' && cleanTrackingCode.length === 0) {
       alert('Para mudar o status para "Em Trânsito", adicione o código de rastreamento para o Brasil.');
@@ -1069,6 +1139,7 @@ export function ShipmentModal({
         shippingDate,
         status: effectiveStatus,
         currency,
+        forwarderId: effectiveForwarderId,
         exchangeRate: parsedRate,
         exchangeRateSource: rateSourceInfo,
         consolidationMode:
@@ -1292,8 +1363,8 @@ export function ShipmentModal({
                 </span>
               </div>
 
-              {/* Status do Pacote + Data de Compra + Peso em kg */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+              {/* Status do Pacote + Redirecionador + Data de Compra + Peso em kg */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">
                     Status do Pacote
@@ -1316,6 +1387,53 @@ export function ShipmentModal({
                     <option value="tributado">🧾 Tributado (Receita/MG)</option>
                     <option value="entregue">✅ Entregue</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-amber-400" />{' '}
+                      Redirecionador (Hub)
+                    </span>
+                  </label>
+                  <select
+                    value={forwarderId}
+                    onChange={(e) => {
+                      const nextFwId = e.target.value;
+                      setForwarderId(nextFwId);
+                      const { savedGroup, savedUnpack } = syncFeePresetsToState(
+                        currency,
+                        nextFwId
+                      );
+                      if (selectedExistingCdIds.size > 0) {
+                        const pkgCount = Math.max(
+                          1,
+                          selectedSourceShipmentsCount
+                        );
+                        const unitFee =
+                          consolidationAction === 'group_only'
+                            ? savedGroup
+                            : savedUnpack;
+                        setForwarderFee(
+                          String(Number((pkgCount * unitFee).toFixed(2)))
+                        );
+                      }
+                    }}
+                    className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-base sm:text-sm text-white focus:border-indigo-500 focus:outline-none"
+                  >
+                    <option value="">
+                      ⏳ Sem redirecionador (No país de origem)
+                    </option>
+                    {getForwardersSortedForCurrency(currency).map((fw) => (
+                      <option key={fw.id} value={fw.id}>
+                        {fw.flag} {fw.name} ({fw.countryCode}) —{' '}
+                        {fw.feeSummaryLabel}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Necessário selecionar para consolidar
+                  </p>
                 </div>
 
                 <div>

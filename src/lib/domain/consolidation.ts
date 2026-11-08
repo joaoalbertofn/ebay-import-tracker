@@ -382,8 +382,19 @@ export function executeConsolidation(
   }
 
   // 3. Atualiza lista de pacotes
+  const inheritedForwarderId =
+    targetShipmentData.forwarderId ||
+    (absorbedSet.size > 0
+      ? forwarderPackages.find(
+          (fp) =>
+            fp.shipment.forwarderId &&
+            fp.items.some((cd) => absorbedSet.has(cd.id))
+        )?.shipment.forwarderId
+      : undefined);
+
   const resolvedShipment: Shipment = {
     ...targetShipmentData,
+    forwarderId: inheritedForwarderId,
     id: targetShipmentId,
     createdAt: isExistingShipment
       ? allShipments.find((s) => s.id === targetShipmentId)?.createdAt ||
@@ -546,6 +557,7 @@ export function extractCdToSingleShipment(
     shippingDate: parentShipment.shippingDate || '',
     status: 'comprado',
     currency: item.currency || parentShipment.currency,
+    forwarderId: parentShipment.forwarderId,
     exchangeRate: parentShipment.exchangeRate,
     exchangeRateSource: parentShipment.exchangeRateSource,
     consolidationMode: 'direct',

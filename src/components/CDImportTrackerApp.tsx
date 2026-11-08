@@ -26,8 +26,13 @@ import { ConfirmDialogState, ConfirmModal } from '@/components/tracker/ConfirmMo
 import { GlobalCollectionView } from '@/components/tracker/GlobalCollectionView';
 import { PackageSidebar } from '@/components/tracker/PackageSidebar';
 import { PackageDetailView } from '@/components/tracker/PackageDetailView';
+import { WorldMapView } from '@/components/tracker/WorldMapView';
 import { ConsolidationAdvisorModal } from '@/components/tracker/ConsolidationAdvisorModal';
 import { ConsolidationSuggestion } from '@/lib/domain/consolidationAdvisor';
+import {
+  getForwarderById,
+  hasSelectedForwarder,
+} from '@/lib/domain/forwarders';
 import { fetchBestAlbumCover, fetchCoversInBatch } from '@/lib/coverArt';
 import {
   AbsorbedForwarderItemsPayload,
@@ -79,6 +84,11 @@ export default function CDImportTrackerApp() {
     'packages'
   );
 
+  // Modo de visualização dentro da aba de pacotes: 'list' (Lista + Detalhes) ou 'map' (Mapa-Múndi em tela cheia)
+  const [packageWorkspaceViewMode, setPackageWorkspaceViewMode] = useState<
+    'list' | 'map'
+  >('list');
+
   // Navegação estilo App Nativo no Mobile ('list' = Lista de Pacotes, 'detail' = Detalhes do Pacote)
   const [mobileActivePane, setMobileActivePane] = useState<'list' | 'detail'>(
     'list'
@@ -117,6 +127,7 @@ export default function CDImportTrackerApp() {
       mode: 'group_only' | 'unpack_and_repack';
       weightKg: number;
       internationalShipping: number;
+      forwarderId?: string;
     } | null>(null);
 
   const [isCDModalOpen, setIsCDModalOpen] = useState(false);
@@ -183,14 +194,15 @@ export default function CDImportTrackerApp() {
 
   // Lista de pacotes elegíveis para consolidação:
   // Inclui apenas pacotes com status 'comprado' (Pacote Único) ou 'no_redirecionador' (Avulso)
-  // que ainda NÃO foram consolidados em nenhuma caixa.
+  // que ainda NÃO foram consolidados em nenhuma caixa E que possuem um redirecionador selecionado.
   const forwarderPackages = useMemo<ForwarderPackageOption[]>(() => {
     return shipments
       .filter(
         (s) =>
           (s.status === 'comprado' || s.status === 'no_redirecionador') &&
           s.consolidationMode !== 'group_only' &&
-          s.consolidationMode !== 'unpack_and_repack'
+          s.consolidationMode !== 'unpack_and_repack' &&
+          hasSelectedForwarder(s)
       )
       .map((s) => ({
         shipment: s,
@@ -268,10 +280,22 @@ export default function CDImportTrackerApp() {
     setEditingShipment(null);
     setCheckedPackageIds(new Set(suggestion.packageIds));
     setPreselectedModalPackageIds(suggestion.packageIds);
+    const firstPkgForwarderId = suggestion.packages.find(
+      (p) => p.option.shipment.forwarderId
+    )?.option.shipment.forwarderId;
+    const resolvedForwarderId =
+      firstPkgForwarderId ||
+      (suggestion.currency === 'USD'
+        ? 'uscloser'
+        : suggestion.forwarderService === 'send2hub'
+        ? 'send2hub'
+        : 'forwardvia');
+
     setPreselectedSuggestionPreset({
       mode: suggestion.mode,
       weightKg: suggestion.totalWeightKg,
       internationalShipping: suggestion.estimatedIntlShippingOriginal,
+      forwarderId: resolvedForwarderId,
     });
     setIsShipmentModalOpen(true);
   };
@@ -821,6 +845,26 @@ export default function CDImportTrackerApp() {
     }
   };
 
+  // Alterar rapidamente o redirecionador (Hub) de um pacote
+  const handleQuickForwarderChange = (
+    shipmentId: string,
+    nextForwarderId: string | undefined
+  ) => {
+    setShipments((prev) =>
+      prev.map((s) =>
+        s.id === shipmentId ? { ...s, forwarderId: nextForwarderId } : s
+      )
+    );
+    const fw = getForwarderById(nextForwarderId);
+    if (fw) {
+      showToast(
+        `Redirecionador definido como ${fw.name} (${fw.countryCode})!`
+      );
+    } else {
+      showToast('Redirecionador removido (pacote no vendedor/origem).');
+    }
+  };
+
   // Salvar código de rastreamento para o Brasil diretamente e mudar status para Em Trânsito
   const handleSaveTrackingCode = (shipmentId: string, trackingCode: string) => {
     const cleanCode = trackingCode.trim().toUpperCase();
@@ -1198,6 +1242,75 @@ export default function CDImportTrackerApp() {
                 setMobileActivePane('detail');
               }}
             />
+          ) : packageWorkspaceViewMode === 'map' ? (
+        /* =====================================================================
+           ABA 1 (MODO MAPA-MÚNDI): ONDE ESTÁ CADA PACOTE + DETALHES AO CLICAR
+           ===================================================================== */
+        <main className="flex-1 max-w-[1600px] w-full mx-auto px-3.5 sm:px-6 py-3 sm:py-4 grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+          <WorldMapView
+            shipments={shipments}
+            summariesMap={summariesMap}
+            selectedShipmentId={selectedShipmentId}
+            onSelectShipmentFromMap={(shipId) => {
+              setSelectedShipmentId(shipId);
+            }}
+            onSwitchToListView={() => setPackageWorkspaceViewMode('list')}
+            renderSelectedPackageDetail={() => (
+              <div className="grid grid-cols-1 lg:grid-cols-12">
+                <div className="lg:col-span-12">
+                  <PackageDetailView
+                    mobileActivePane="detail"
+                    onBackToList={() => setPackageWorkspaceViewMode('list')}
+                    filteredShipmentsCount={filteredShipments.length}
+                    selectedSummary={selectedSummary}
+                    searchQuery={searchQuery}
+                    displayedCDItems={displayedCDItems}
+                    cdSortBy={cdSortBy}
+                    onCdSortByChange={setCdSortBy}
+                    isFetchingCoversBatch={isFetchingCoversBatch}
+                    onFetchAllCovers={handleFetchAllCoversInShipment}
+                    onOpenNewShipmentModal={() => {
+                      setEditingShipment(null);
+                      setIsShipmentModalOpen(true);
+                    }}
+                    onOpenReportModal={(shipmentId) => {
+                      setReportModalShipmentId(shipmentId);
+                      setIsReportModalOpen(true);
+                    }}
+                    onEditShipment={(shipment) => {
+                      setEditingShipment(shipment);
+                      setIsShipmentModalOpen(true);
+                    }}
+                    onDuplicateShipment={handleDuplicateShipment}
+                    onDeleteShipment={handleDeleteShipment}
+                    onRevertPackageToSingle={handleRevertPackageToSingle}
+                    onApplyMgTaxEstimate={handleApplyMgTaxEstimate}
+                    onQuickStatusChange={handleQuickStatusChange}
+                    onQuickForwarderChange={handleQuickForwarderChange}
+                    onSaveTrackingCode={handleSaveTrackingCode}
+                    onSavePackageTitle={handleSavePackageTitle}
+                    onTogglePackageCustomNameLock={
+                      handleTogglePackageCustomNameLock
+                    }
+                    onSavePackageWeight={handleSavePackageWeight}
+                    onOpenAddCD={() => {
+                      setEditingCD(null);
+                      setIsCDModalOpen(true);
+                    }}
+                    onEditCD={(cd) => {
+                      setEditingCD(cd);
+                      setIsCDModalOpen(true);
+                    }}
+                    onDeleteCD={handleDeleteCD}
+                    onExtractCdToSingle={handleExtractCdToSinglePackage}
+                    onSaveInlineEditCD={handleSaveInlineEdit}
+                    showToast={showToast}
+                  />
+                </div>
+              </div>
+            )}
+          />
+        </main>
           ) : (
         /* =====================================================================
            ABA 1: MAIN SPA MASTER / DETAIL WORKSPACE (VISÃO POR PACOTES)
@@ -1218,6 +1331,7 @@ export default function CDImportTrackerApp() {
               setPreselectedModalPackageIds([]);
               setIsShipmentModalOpen(true);
             }}
+            onOpenWorldMapView={() => setPackageWorkspaceViewMode('map')}
             searchQuery={searchQuery}
             onSearchQueryChange={setSearchQuery}
             statusFilter={statusFilter}
@@ -1264,6 +1378,7 @@ export default function CDImportTrackerApp() {
             onRevertPackageToSingle={handleRevertPackageToSingle}
             onApplyMgTaxEstimate={handleApplyMgTaxEstimate}
             onQuickStatusChange={handleQuickStatusChange}
+            onQuickForwarderChange={handleQuickForwarderChange}
             onSaveTrackingCode={handleSaveTrackingCode}
             onSavePackageTitle={handleSavePackageTitle}
             onTogglePackageCustomNameLock={handleTogglePackageCustomNameLock}

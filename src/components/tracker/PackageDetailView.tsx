@@ -29,6 +29,7 @@ import {
   ArrowUpDown,
   Layers,
   FileText,
+  Building2,
 } from 'lucide-react';
 import {
   Shipment,
@@ -48,6 +49,10 @@ import {
 } from '@/lib/formatters';
 import { MG_TAX_FACTOR } from '@/lib/calculations';
 import { AlbumCover } from '@/components/AlbumCover';
+import {
+  getForwarderById,
+  getForwardersSortedForCurrency,
+} from '@/lib/domain/forwarders';
 
 interface PackageDetailViewProps {
   mobileActivePane: 'list' | 'detail';
@@ -68,6 +73,7 @@ interface PackageDetailViewProps {
   onRevertPackageToSingle: (shipment: Shipment) => void;
   onApplyMgTaxEstimate: (summary: ShipmentSummary) => void;
   onQuickStatusChange: (shipmentId: string, status: ShipmentStatus) => void;
+  onQuickForwarderChange?: (shipmentId: string, forwarderId: string | undefined) => void;
   onSaveTrackingCode?: (shipmentId: string, trackingCode: string) => void;
   onSavePackageTitle: (shipment: Shipment, newTitle: string) => void;
   onTogglePackageCustomNameLock: (shipment: Shipment) => void;
@@ -99,6 +105,7 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
   onRevertPackageToSingle,
   onApplyMgTaxEstimate,
   onQuickStatusChange,
+  onQuickForwarderChange,
   onSaveTrackingCode,
   onSavePackageTitle,
   onTogglePackageCustomNameLock,
@@ -321,6 +328,79 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                       ✅ Entregue
                     </option>
                   </select>
+
+                  {/* Seletor / Histórico de Redirecionador (ForwardVia, Send2Hub, UsCloser, etc.) */}
+                  {(() => {
+                    const currentForwarder = getForwarderById(
+                      selectedSummary.shipment.forwarderId
+                    );
+                    const sortedForwarders = getForwardersSortedForCurrency(
+                      selectedSummary.shipment.currency
+                    );
+                    const isPastForwarderStage =
+                      selectedSummary.shipment.status === 'consolidado' ||
+                      selectedSummary.shipment.status === 'em_transito' ||
+                      selectedSummary.shipment.status === 'tributado' ||
+                      selectedSummary.shipment.status === 'entregue';
+
+                    return (
+                      <div
+                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold shrink-0 transition ${
+                          currentForwarder
+                            ? currentForwarder.badgeClass
+                            : 'bg-slate-950/90 border-slate-700/80 text-slate-400'
+                        }`}
+                        title={
+                          currentForwarder
+                            ? `${
+                                isPastForwarderStage
+                                  ? 'Passou por'
+                                  : 'Redirecionador selecionado'
+                              }: ${currentForwarder.name} (${
+                                currentForwarder.cityLabel
+                              }) — ${currentForwarder.feeSummaryLabel}`
+                            : 'Selecione em qual redirecionador este pacote está ou vai passar para habilitar a consolidação'
+                        }
+                      >
+                        <Building2 className="w-3 h-3 shrink-0" />
+                        {isPastForwarderStage && currentForwarder && (
+                          <span className="opacity-85 font-normal">
+                            Passou por:
+                          </span>
+                        )}
+                        <select
+                          value={selectedSummary.shipment.forwarderId || ''}
+                          onChange={(e) => {
+                            if (onQuickForwarderChange) {
+                              onQuickForwarderChange(
+                                selectedSummary.shipment.id,
+                                e.target.value || undefined
+                              );
+                            }
+                          }}
+                          className="bg-transparent font-semibold cursor-pointer focus:outline-none"
+                        >
+                          <option
+                            value=""
+                            className="bg-slate-900 text-slate-300"
+                          >
+                            {isPastForwarderStage
+                              ? 'Definir redirecionador...'
+                              : 'Sem redirecionador (No vendedor)'}
+                          </option>
+                          {sortedForwarders.map((fw) => (
+                            <option
+                              key={fw.id}
+                              value={fw.id}
+                              className="bg-slate-900 text-white"
+                            >
+                              {fw.flag} {fw.name} ({fw.countryCode})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })()}
 
                   {selectedSummary.shipment.consolidationMode ===
                     'unpack_and_repack' && (

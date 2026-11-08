@@ -14,6 +14,7 @@ import {
 import { CurrencyCode } from '@/types/tracker';
 import { ForwarderPackageOption } from '@/components/ShipmentModal';
 import { formatBrl, formatOriginalCurrency } from '@/lib/formatters';
+import { getForwarderById } from '@/lib/domain/forwarders';
 
 interface ForwarderConsolidationSectionProps {
   eligibleForwarderPackages: ForwarderPackageOption[];
@@ -205,6 +206,17 @@ export const ForwarderConsolidationSection: React.FC<
                       <span className="text-xs font-bold text-white">
                         {fp.shipment.name}
                       </span>
+                      {(() => {
+                        const fw = getForwarderById(fp.shipment.forwarderId);
+                        if (!fw) return null;
+                        return (
+                          <span
+                            className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${fw.badgeClass}`}
+                          >
+                            {fw.flag} {fw.name}
+                          </span>
+                        );
+                      })()}
                       <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-300">
                         {nonDiscardedInPkg.length}/{fp.items.length} CDs
                       </span>

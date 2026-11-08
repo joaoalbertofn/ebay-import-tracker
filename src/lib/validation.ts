@@ -70,6 +70,12 @@ export function validateTrackerPayload(payload: unknown): ValidationResult {
         error: `Shipment "${s.id}" tem moeda inválida: "${s.currency}".`,
       };
     }
+    if (s.forwarderId !== undefined && typeof s.forwarderId !== 'string') {
+      return {
+        success: false,
+        error: `Shipment "${s.id}" tem forwarderId inválido.`,
+      };
+    }
     if (!VALID_STATUSES.has(s.status)) {
       return {
         success: false,

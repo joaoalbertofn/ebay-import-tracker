@@ -16,6 +16,9 @@ import {
   ChevronRight,
   Sparkles,
   Plane,
+  Globe,
+  List,
+  Building2,
 } from 'lucide-react';
 import { Shipment, ShipmentStatus, ShipmentSummary } from '@/types/tracker';
 import { STATUS_LABELS } from '@/components/ShipmentModal';
@@ -25,6 +28,7 @@ import {
   formatMediaCountLabel,
   formatWeightKg,
 } from '@/lib/formatters';
+import { getForwarderById } from '@/lib/domain/forwarders';
 
 interface PackageSidebarProps {
   mobileActivePane: 'list' | 'detail';
@@ -36,6 +40,7 @@ interface PackageSidebarProps {
   onOpenConsolidateFromChecked: () => void;
   onOpenConsolidationAdvisor: () => void;
   onOpenNewShipmentModal: () => void;
+  onOpenWorldMapView?: () => void;
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
   statusFilter: ShipmentStatus | 'ALL';
@@ -58,6 +63,7 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
   onOpenConsolidateFromChecked,
   onOpenConsolidationAdvisor,
   onOpenNewShipmentModal,
+  onOpenWorldMapView,
   searchQuery,
   onSearchQueryChange,
   statusFilter,
@@ -77,18 +83,38 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center gap-2">
-            <Package className="w-4 h-4 text-indigo-400" />
-            Pacotes / Lotes ({filteredShipments.length})
-          </h2>
-          <p className="text-[11px] text-slate-400">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+              <Package className="w-4 h-4 text-indigo-400" />
+              Pacotes / Lotes ({filteredShipments.length})
+            </h2>
+
+            {onOpenWorldMapView && (
+              <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-slate-950 border border-slate-800">
+                <span className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold bg-indigo-600 text-white shadow">
+                  <List className="w-3 h-3" />
+                  <span>Lista</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={onOpenWorldMapView}
+                  title="Alternar para o Mapa-Múndi e visualizar onde está cada pacote"
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold text-slate-400 hover:text-white hover:bg-slate-800/80 transition cursor-pointer"
+                >
+                  <Globe className="w-3 h-3 text-sky-400" />
+                  <span>Mapa</span>
+                </button>
+              </div>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-0.5">
             {checkedConsolidationStats.packageCount > 0
               ? `${checkedConsolidationStats.packageCount} ${
                   checkedConsolidationStats.packageCount === 1
                     ? 'pacote marcado'
                     : 'pacotes marcados'
                 } (${checkedConsolidationStats.totalCds} CDs)`
-              : 'Marque 2+ pacotes para consolidar ou toque para abrir'}
+              : 'Marque 2+ pacotes (com redirecionador) para consolidar'}
           </p>
         </div>
 
@@ -211,6 +237,14 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
               ship.id
             );
             const isCheckedForConsolidation = checkedPackageIds.has(ship.id);
+            const forwarderMeta = getForwarderById(ship.forwarderId);
+            const isSingleAwaitingForwarder =
+              !isEligibleForConsolidation &&
+              (ship.status === 'comprado' ||
+                ship.status === 'no_redirecionador') &&
+              ship.consolidationMode !== 'group_only' &&
+              ship.consolidationMode !== 'unpack_and_repack' &&
+              !ship.forwarderId;
 
             const isDispatchedGroup = (st: ShipmentStatus) =>
               st === 'em_transito' || st === 'tributado' || st === 'entregue';
@@ -238,14 +272,14 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
                   {/* Linha 1: Checkbox (se elegível) + Nome + Status Badge */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                      {isEligibleForConsolidation && (
+                      {isEligibleForConsolidation ? (
                         <button
                           type="button"
                           onClick={(e) => onToggleCheckPackage(e, ship.id)}
                           title={
                             isCheckedForConsolidation
                               ? 'Desmarcar da consolidação'
-                              : 'Marcar pacote para consolidar'
+                              : `Marcar para consolidar (${forwarderMeta?.name || 'Redirecionador'})`
                           }
                           className="p-0.5 rounded text-slate-400 hover:text-amber-300 transition shrink-0 cursor-pointer"
                         >
@@ -255,7 +289,14 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
                             <Square className="w-4 h-4 text-slate-500 group-hover:text-slate-300" />
                           )}
                         </button>
-                      )}
+                      ) : isSingleAwaitingForwarder ? (
+                        <span
+                          title="Selecione um redirecionador neste pacote para liberar a consolidação"
+                          className="p-0.5 rounded text-slate-700 shrink-0 cursor-not-allowed"
+                        >
+                          <Square className="w-4 h-4 opacity-40" />
+                        </span>
+                      ) : null}
 
                       {(() => {
                         const hasBrazilTracking = Boolean(
@@ -356,6 +397,23 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
                         <span>{CURRENCY_HUB_INFO[ship.currency]?.flag}</span>
                         <span>{ship.currency}</span>
                       </span>
+
+                      {forwarderMeta && (
+                        <span
+                          title={`${
+                            ship.status === 'em_transito' ||
+                            ship.status === 'tributado' ||
+                            ship.status === 'entregue' ||
+                            ship.status === 'consolidado'
+                              ? 'Passou por'
+                              : 'Redirecionador'
+                          }: ${forwarderMeta.name} (${forwarderMeta.cityLabel})`}
+                          className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold ${forwarderMeta.badgeClass}`}
+                        >
+                          <Building2 className="w-2.5 h-2.5" />
+                          <span>{forwarderMeta.name}</span>
+                        </span>
+                      )}
 
                       <span className="inline-flex items-center gap-1.5">
                         <Disc3
