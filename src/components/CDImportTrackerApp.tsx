@@ -45,12 +45,8 @@ import { ShipmentReportModal } from '@/components/modals/ShipmentReportModal';
 import { DemandRadarView } from '@/components/DemandRadarView';
 import {
   Disc3,
-  Package,
   CheckCircle2,
   LogIn,
-  Flame,
-  PanelLeftClose,
-  PanelLeftOpen,
 } from 'lucide-react';
 
 export default function CDImportTrackerApp() {
@@ -73,11 +69,10 @@ export default function CDImportTrackerApp() {
     currentUserId,
   });
 
-  // Módulo ativo no Menu Lateral: 'tracker' (Rastreamento & Pacotes) ou 'radar' (Radar Top 100 Demanda)
+  // Módulo ativo: 'tracker' (Rastreamento & Pacotes) ou 'radar' (Radar Top 100 Demanda)
   const [activeModule, setActiveModule] = useState<'tracker' | 'radar'>(
     'tracker'
   );
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
   // Aba principal: 'packages' (Master/Detail por pacotes) ou 'collection' (Visão Global de todos os CDs)
   const [activeMainTab, setActiveMainTab] = useState<'packages' | 'collection'>(
@@ -757,36 +752,9 @@ export default function CDImportTrackerApp() {
     if (newStatus === 'em_transito') {
       const existingCode = targetShipment.internationalTrackingCode?.trim();
       if (!existingCode) {
-        const inputCode = window.prompt(
-          'Para mudar o status para "Em Trânsito", informe o código de rastreamento para o Brasil (ex: LT497056434GB):'
+        showToast(
+          'O status "Em Trânsito" requer o código de rastreamento para o Brasil (+ Rastreio Brasil).'
         );
-        if (!inputCode || !inputCode.trim()) {
-          showToast(
-            'O status "Em Trânsito" requer o código de rastreamento para o Brasil.'
-          );
-          return;
-        }
-        const cleanCode = inputCode.trim().toUpperCase();
-        setShipments((prev) =>
-          prev.map((s) =>
-            s.id === shipmentId
-              ? {
-                  ...s,
-                  status: 'em_transito',
-                  internationalTrackingCode: cleanCode,
-                  name: s.isCustomName ? s.name : cleanCode,
-                }
-              : s
-          )
-        );
-        setCdItems((prev) =>
-          prev.map((cd) =>
-            cd.shipmentId === shipmentId
-              ? { ...cd, isConsolidated: true }
-              : cd
-          )
-        );
-        showToast(`Status atualizado para Em Trânsito (${cleanCode})!`);
         return;
       }
     }
@@ -1117,7 +1085,7 @@ export default function CDImportTrackerApp() {
         </div>
       )}
 
-      {/* TOP BAR / HEADER */}
+      {/* TOP BAR / HEADER UNIFICADO */}
       <TrackerHeader
         globalStats={globalStats}
         cloudSyncStatus={cloudSyncStatus}
@@ -1125,6 +1093,8 @@ export default function CDImportTrackerApp() {
         setActiveModule={setActiveModule}
         activeMainTab={activeMainTab}
         setActiveMainTab={setActiveMainTab}
+        packageWorkspaceViewMode={packageWorkspaceViewMode}
+        setPackageWorkspaceViewMode={setPackageWorkspaceViewMode}
         packagesCount={shipments.length}
         onOpenReportModal={() => {
           setReportModalShipmentId(selectedShipmentId || undefined);
@@ -1137,90 +1107,8 @@ export default function CDImportTrackerApp() {
         user={user}
       />
 
-      {/* CORPO COM MENU LATERAL RECOLHÍVEL (SIDEBAR) + CONTEÚDO PRINCIPAL */}
+      {/* ÁREA DE CONTEÚDO PRINCIPAL EM LARGURA TOTAL */}
       <div className="flex-1 flex max-w-[1600px] w-full mx-auto">
-        {/* MENU LATERAL DESKTOP */}
-        <aside
-          className={`hidden md:flex flex-col justify-between border-r border-slate-800/80 bg-slate-900/40 shrink-0 transition-all duration-200 ${
-            isSidebarCollapsed ? 'w-16' : 'w-60'
-          } p-3`}
-        >
-          <div className="space-y-1.5 sticky top-14">
-            <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-slate-800/70">
-              {!isSidebarCollapsed && (
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                  Módulos
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => setIsSidebarCollapsed((prev) => !prev)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer mx-auto md:mx-0"
-                title={
-                  isSidebarCollapsed
-                    ? 'Expandir menu lateral'
-                    : 'Recolher menu lateral'
-                }
-              >
-                {isSidebarCollapsed ? (
-                  <PanelLeftOpen className="w-4 h-4" />
-                ) : (
-                  <PanelLeftClose className="w-4 h-4" />
-                )}
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setActiveModule('tracker')}
-              title="Rastreamento & Pacotes"
-              className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold transition cursor-pointer ${
-                activeModule === 'tracker'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/25'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/70'
-              }`}
-            >
-              <Package className="w-4 h-4 shrink-0" />
-              {!isSidebarCollapsed && (
-                <div className="text-left truncate">
-                  <div className="truncate">Rastreamento & Pacotes</div>
-                  <div className="text-[10px] font-normal opacity-80 truncate">
-                    Importações, Lotes e Rateio
-                  </div>
-                </div>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveModule('radar')}
-              title="Radar Top 100 (Demanda & Arbitragem)"
-              className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold transition cursor-pointer ${
-                activeModule === 'radar'
-                  ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-lg shadow-amber-500/20'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/70'
-              }`}
-            >
-              <Flame
-                className={`w-4 h-4 shrink-0 ${
-                  activeModule === 'radar'
-                    ? 'text-slate-950'
-                    : 'text-amber-400'
-                }`}
-              />
-              {!isSidebarCollapsed && (
-                <div className="text-left truncate">
-                  <div className="truncate">Radar Top 100</div>
-                  <div className="text-[10px] font-normal opacity-80 truncate">
-                    Discogs + Mercado Livre BR
-                  </div>
-                </div>
-              )}
-            </button>
-          </div>
-        </aside>
-
-        {/* ÁREA DE CONTEÚDO DO MÓDULO ATIVO */}
         <div className="flex-1 min-w-0 flex flex-col">
           {activeModule === 'radar' ? (
             <main className="flex-1 w-full px-3.5 sm:px-6 py-4 sm:py-6">
@@ -1230,6 +1118,9 @@ export default function CDImportTrackerApp() {
             <GlobalCollectionView
               entries={allCollectionEntries}
               totalCollectionCount={globalStats.totalItems}
+              totalInvestedBrl={globalStats.totalInvestedBrl}
+              totalPhysicalDiscs={globalStats.totalPhysicalDiscs}
+              avgPerItemBrl={globalStats.avgPerItemBrl}
               searchQuery={collectionSearch}
               onSearchChange={setCollectionSearch}
               statusFilter={collectionStatusFilter}
@@ -1239,27 +1130,27 @@ export default function CDImportTrackerApp() {
               onNavigateToPackage={(shipmentId) => {
                 setSelectedShipmentId(shipmentId);
                 setActiveMainTab('packages');
+                setPackageWorkspaceViewMode('list');
                 setMobileActivePane('detail');
               }}
             />
           ) : packageWorkspaceViewMode === 'map' ? (
-        /* =====================================================================
-           ABA 1 (MODO MAPA-MÚNDI): ONDE ESTÁ CADA PACOTE + DETALHES AO CLICAR
-           ===================================================================== */
-        <main className="flex-1 max-w-[1600px] w-full mx-auto px-3.5 sm:px-6 py-3 sm:py-4 grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-          <WorldMapView
-            shipments={shipments}
-            summariesMap={summariesMap}
-            selectedShipmentId={selectedShipmentId}
-            onSelectShipmentFromMap={(shipId) => {
-              setSelectedShipmentId(shipId);
-            }}
-            onSwitchToListView={() => setPackageWorkspaceViewMode('list')}
-            renderSelectedPackageDetail={() => (
-              <div className="grid grid-cols-1 lg:grid-cols-12">
-                <div className="lg:col-span-12">
+            /* =====================================================================
+               MODO MAPA-MÚNDI: ONDE ESTÁ CADA PACOTE + DETALHES AO CLICAR
+               ===================================================================== */
+            <main className="flex-1 max-w-[1600px] w-full mx-auto px-3.5 sm:px-6 py-3 sm:py-4 grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+              <WorldMapView
+                shipments={shipments}
+                summariesMap={summariesMap}
+                selectedShipmentId={selectedShipmentId}
+                onSelectShipmentFromMap={(shipId) => {
+                  setSelectedShipmentId(shipId);
+                }}
+                onSwitchToListView={() => setPackageWorkspaceViewMode('list')}
+                renderSelectedPackageDetail={() => (
                   <PackageDetailView
                     mobileActivePane="detail"
+                    isEmbeddedInModal
                     onBackToList={() => setPackageWorkspaceViewMode('list')}
                     filteredShipmentsCount={filteredShipments.length}
                     selectedSummary={selectedSummary}
@@ -1306,98 +1197,100 @@ export default function CDImportTrackerApp() {
                     onSaveInlineEditCD={handleSaveInlineEdit}
                     showToast={showToast}
                   />
-                </div>
-              </div>
-            )}
-          />
-        </main>
+                )}
+              />
+            </main>
           ) : (
-        /* =====================================================================
-           ABA 1: MAIN SPA MASTER / DETAIL WORKSPACE (VISÃO POR PACOTES)
-           ===================================================================== */
-        <main className="flex-1 max-w-[1600px] w-full mx-auto px-3.5 sm:px-6 py-3 sm:py-4 grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-          <PackageSidebar
-            mobileActivePane={mobileActivePane}
-            filteredShipments={filteredShipments}
-            totalShipmentsCount={shipments.length}
-            checkedConsolidationStats={checkedConsolidationStats}
-            eligibleConsolidationCount={forwarderPackages.length}
-            onClearCheckedPackages={() => setCheckedPackageIds(new Set())}
-            onOpenConsolidateFromChecked={handleOpenConsolidateFromChecked}
-            onOpenConsolidationAdvisor={() => setIsAdvisorModalOpen(true)}
-            onOpenNewShipmentModal={() => {
-              setEditingShipment(null);
-              setPreselectedSuggestionPreset(null);
-              setPreselectedModalPackageIds([]);
-              setIsShipmentModalOpen(true);
-            }}
-            onOpenWorldMapView={() => setPackageWorkspaceViewMode('map')}
-            searchQuery={searchQuery}
-            onSearchQueryChange={setSearchQuery}
-            statusFilter={statusFilter}
-            onStatusFilterChange={setStatusFilter}
-            summariesMap={summariesMap}
-            selectedShipmentId={selectedShipmentId}
-            forwarderPackageIdsSet={forwarderPackageIdsSet}
-            checkedPackageIds={checkedPackageIds}
-            onToggleCheckPackage={handleToggleCheckPackage}
-            onSelectShipment={(shipId) => {
-              setSelectedShipmentId(shipId);
-              setMobileActivePane('detail');
-              if (typeof window !== 'undefined' && window.innerWidth < 1024) {
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }
-            }}
-          />
+            /* =====================================================================
+               MAIN SPA MASTER / DETAIL WORKSPACE (VISÃO POR PACOTES)
+               ===================================================================== */
+            <main className="flex-1 max-w-[1600px] w-full mx-auto px-3.5 sm:px-6 py-3 sm:py-4 grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+              <PackageSidebar
+                mobileActivePane={mobileActivePane}
+                filteredShipments={filteredShipments}
+                totalShipmentsCount={shipments.length}
+                checkedConsolidationStats={checkedConsolidationStats}
+                eligibleConsolidationCount={forwarderPackages.length}
+                onClearCheckedPackages={() => setCheckedPackageIds(new Set())}
+                onOpenConsolidateFromChecked={handleOpenConsolidateFromChecked}
+                onOpenConsolidationAdvisor={() => setIsAdvisorModalOpen(true)}
+                onOpenNewShipmentModal={() => {
+                  setEditingShipment(null);
+                  setPreselectedSuggestionPreset(null);
+                  setPreselectedModalPackageIds([]);
+                  setIsShipmentModalOpen(true);
+                }}
+                searchQuery={searchQuery}
+                onSearchQueryChange={setSearchQuery}
+                statusFilter={statusFilter}
+                onStatusFilterChange={setStatusFilter}
+                summariesMap={summariesMap}
+                selectedShipmentId={selectedShipmentId}
+                forwarderPackageIdsSet={forwarderPackageIdsSet}
+                checkedPackageIds={checkedPackageIds}
+                onToggleCheckPackage={handleToggleCheckPackage}
+                onSelectShipment={(shipId) => {
+                  setSelectedShipmentId(shipId);
+                  setMobileActivePane('detail');
+                  if (
+                    typeof window !== 'undefined' &&
+                    window.innerWidth < 1024
+                  ) {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                }}
+              />
 
-          <PackageDetailView
-            mobileActivePane={mobileActivePane}
-            onBackToList={() => setMobileActivePane('list')}
-            filteredShipmentsCount={filteredShipments.length}
-            selectedSummary={selectedSummary}
-            searchQuery={searchQuery}
-            displayedCDItems={displayedCDItems}
-            cdSortBy={cdSortBy}
-            onCdSortByChange={setCdSortBy}
-            isFetchingCoversBatch={isFetchingCoversBatch}
-            onFetchAllCovers={handleFetchAllCoversInShipment}
-            onOpenNewShipmentModal={() => {
-              setEditingShipment(null);
-              setIsShipmentModalOpen(true);
-            }}
-            onOpenReportModal={(shipmentId) => {
-              setReportModalShipmentId(shipmentId);
-              setIsReportModalOpen(true);
-            }}
-            onEditShipment={(shipment) => {
-              setEditingShipment(shipment);
-              setIsShipmentModalOpen(true);
-            }}
-            onDuplicateShipment={handleDuplicateShipment}
-            onDeleteShipment={handleDeleteShipment}
-            onRevertPackageToSingle={handleRevertPackageToSingle}
-            onApplyMgTaxEstimate={handleApplyMgTaxEstimate}
-            onQuickStatusChange={handleQuickStatusChange}
-            onQuickForwarderChange={handleQuickForwarderChange}
-            onSaveTrackingCode={handleSaveTrackingCode}
-            onSavePackageTitle={handleSavePackageTitle}
-            onTogglePackageCustomNameLock={handleTogglePackageCustomNameLock}
-            onSavePackageWeight={handleSavePackageWeight}
-            onOpenAddCD={() => {
-              setEditingCD(null);
-              setIsCDModalOpen(true);
-            }}
-            onEditCD={(cd) => {
-              setEditingCD(cd);
-              setIsCDModalOpen(true);
-            }}
-            onDeleteCD={handleDeleteCD}
-            onExtractCdToSingle={handleExtractCdToSinglePackage}
-            onSaveInlineEditCD={handleSaveInlineEdit}
-            showToast={showToast}
-          />
-        </main>
-      )}
+              <PackageDetailView
+                mobileActivePane={mobileActivePane}
+                onBackToList={() => setMobileActivePane('list')}
+                filteredShipmentsCount={filteredShipments.length}
+                selectedSummary={selectedSummary}
+                searchQuery={searchQuery}
+                displayedCDItems={displayedCDItems}
+                cdSortBy={cdSortBy}
+                onCdSortByChange={setCdSortBy}
+                isFetchingCoversBatch={isFetchingCoversBatch}
+                onFetchAllCovers={handleFetchAllCoversInShipment}
+                onOpenNewShipmentModal={() => {
+                  setEditingShipment(null);
+                  setIsShipmentModalOpen(true);
+                }}
+                onOpenReportModal={(shipmentId) => {
+                  setReportModalShipmentId(shipmentId);
+                  setIsReportModalOpen(true);
+                }}
+                onEditShipment={(shipment) => {
+                  setEditingShipment(shipment);
+                  setIsShipmentModalOpen(true);
+                }}
+                onDuplicateShipment={handleDuplicateShipment}
+                onDeleteShipment={handleDeleteShipment}
+                onRevertPackageToSingle={handleRevertPackageToSingle}
+                onApplyMgTaxEstimate={handleApplyMgTaxEstimate}
+                onQuickStatusChange={handleQuickStatusChange}
+                onQuickForwarderChange={handleQuickForwarderChange}
+                onSaveTrackingCode={handleSaveTrackingCode}
+                onSavePackageTitle={handleSavePackageTitle}
+                onTogglePackageCustomNameLock={
+                  handleTogglePackageCustomNameLock
+                }
+                onSavePackageWeight={handleSavePackageWeight}
+                onOpenAddCD={() => {
+                  setEditingCD(null);
+                  setIsCDModalOpen(true);
+                }}
+                onEditCD={(cd) => {
+                  setEditingCD(cd);
+                  setIsCDModalOpen(true);
+                }}
+                onDeleteCD={handleDeleteCD}
+                onExtractCdToSingle={handleExtractCdToSinglePackage}
+                onSaveInlineEditCD={handleSaveInlineEdit}
+                showToast={showToast}
+              />
+            </main>
+          )}
         </div>
       </div>
 

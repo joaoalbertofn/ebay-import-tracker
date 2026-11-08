@@ -1,12 +1,14 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { UserButton } from '@clerk/nextjs';
 import {
   Cloud,
   CloudOff,
+  Database,
   Disc3,
   Download,
   FileText,
   Flame,
+  Globe,
   Loader2,
   Package,
   Upload,
@@ -27,6 +29,8 @@ interface TrackerHeaderProps {
   setActiveModule: (mod: 'tracker' | 'radar') => void;
   activeMainTab: 'packages' | 'collection';
   setActiveMainTab: (tab: 'packages' | 'collection') => void;
+  packageWorkspaceViewMode: 'list' | 'map';
+  setPackageWorkspaceViewMode: (mode: 'list' | 'map') => void;
   packagesCount: number;
   onOpenReportModal: () => void;
   onForceSync: () => void;
@@ -46,6 +50,8 @@ export function TrackerHeader({
   setActiveModule,
   activeMainTab,
   setActiveMainTab,
+  packageWorkspaceViewMode,
+  setPackageWorkspaceViewMode,
   packagesCount,
   onOpenReportModal,
   onForceSync,
@@ -54,10 +60,39 @@ export function TrackerHeader({
   onImportBackup,
   user,
 }: TrackerHeaderProps) {
+  const [isBackupMenuOpen, setIsBackupMenuOpen] = useState(false);
+  const backupMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isBackupMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        backupMenuRef.current &&
+        !backupMenuRef.current.contains(e.target as Node)
+      ) {
+        setIsBackupMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isBackupMenuOpen]);
+
+  const isPackagesListActive =
+    activeModule === 'tracker' &&
+    activeMainTab === 'packages' &&
+    packageWorkspaceViewMode === 'list';
+  const isPackagesMapActive =
+    activeModule === 'tracker' &&
+    activeMainTab === 'packages' &&
+    packageWorkspaceViewMode === 'map';
+  const isCollectionActive =
+    activeModule === 'tracker' && activeMainTab === 'collection';
+  const isRadarActive = activeModule === 'radar';
+
   return (
     <header className="border-b border-slate-800/80 bg-slate-900/85 backdrop-blur-md sticky top-0 z-30">
       <div className="max-w-[1600px] mx-auto px-3 sm:px-5 py-1.5 flex flex-wrap items-center justify-between gap-2">
-        {/* Esquerda: Brand Compacta + Abas de Navegação na mesma linha */}
+        {/* Esquerda: Brand Compacta + Navegação Unificada (Pacotes | Mapa | Coleção | Radar) */}
         <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
           <div className="flex items-center gap-2 min-w-0">
             <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm shadow-indigo-500/20 shrink-0">
@@ -68,73 +103,85 @@ export function TrackerHeader({
             </h1>
           </div>
 
-          {/* Seletor Mobile entre Rastreamento e Radar Top 100 */}
-          <div className="flex md:hidden items-center gap-1 p-0.5 rounded-lg bg-slate-950/90 border border-slate-800">
+          <div className="hidden sm:block h-4 w-px bg-slate-800" />
+
+          {/* Barra Única de Navegação Global */}
+          <nav
+            aria-label="Navegação Principal"
+            className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-slate-950/90 border border-slate-800 overflow-x-auto no-scrollbar"
+          >
             <button
               type="button"
-              onClick={() => setActiveModule('tracker')}
-              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition cursor-pointer ${
-                activeModule === 'tracker'
+              onClick={() => {
+                setActiveModule('tracker');
+                setActiveMainTab('packages');
+                setPackageWorkspaceViewMode('list');
+              }}
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
+                isPackagesListActive
                   ? 'bg-indigo-600 text-white shadow'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Package className="w-3 h-3" />
-              <span>Pacotes</span>
+              <Package className="w-3.5 h-3.5" />
+              <span>Pacotes ({packagesCount})</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveModule('tracker');
+                setActiveMainTab('packages');
+                setPackageWorkspaceViewMode('map');
+              }}
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
+                isPackagesMapActive
+                  ? 'bg-sky-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span>Mapa</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveModule('tracker');
+                setActiveMainTab('collection');
+              }}
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
+                isCollectionActive
+                  ? 'bg-purple-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Disc3 className="w-3.5 h-3.5" />
+              <span>
+                Coleção ({globalStats.totalItems})
+              </span>
+            </button>
+
             <button
               type="button"
               onClick={() => setActiveModule('radar')}
-              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition cursor-pointer ${
-                activeModule === 'radar'
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
+                isRadarActive
                   ? 'bg-amber-500 text-slate-950 shadow'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Flame className="w-3 h-3" />
+              <Flame
+                className={`w-3.5 h-3.5 ${
+                  isRadarActive ? 'text-slate-950' : 'text-amber-400'
+                }`}
+              />
               <span>Radar</span>
             </button>
-          </div>
-
-          {/* Abas Principais (Visão por Pacotes / Todos os CDs) integradas na barra */}
-          {activeModule === 'tracker' && (
-            <>
-              <div className="hidden sm:block h-4 w-px bg-slate-800" />
-              <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-slate-950/90 border border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setActiveMainTab('packages')}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
-                    activeMainTab === 'packages'
-                      ? 'bg-indigo-600 text-white shadow'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <Package className="w-3.5 h-3.5" />
-                  <span>Visão por Pacotes ({packagesCount})</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveMainTab('collection')}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
-                    activeMainTab === 'collection'
-                      ? 'bg-purple-600 text-white shadow'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <Disc3 className="w-3.5 h-3.5" />
-                  <span>
-                    <span className="hidden sm:inline">Todos os CDs da Coleção</span>
-                    <span className="sm:hidden">Coleção</span> ({globalStats.totalItems})
-                  </span>
-                </button>
-              </div>
-            </>
-          )}
+          </nav>
         </div>
 
-        {/* Direita: Global KPIs Inline + Cloud Sync + Ações Compactas + Usuário */}
+        {/* Direita: Global KPIs Inline + Cloud Sync + Relatório + Menu Backup + Usuário */}
         <div className="flex items-center gap-2 shrink-0 ml-auto">
           <div className="hidden xl:flex items-center gap-3.5 rounded-lg bg-slate-950/90 border border-slate-800 px-3 py-1 text-[11px]">
             <div className="flex items-center gap-1.5">
@@ -201,32 +248,56 @@ export function TrackerHeader({
               className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600/90 hover:bg-indigo-600 border border-indigo-500/50 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm shadow-indigo-500/20 transition cursor-pointer"
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>Relatório</span>
+              <span className="hidden sm:inline">Relatório</span>
             </button>
 
-            <button
-              onClick={onExportBackup}
-              title="Exportar seus dados em arquivo JSON"
-              className="inline-flex items-center gap-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-2 py-1 text-[11px] font-medium text-slate-200 transition cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="hidden lg:inline">Exportar</span>
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              title="Importar backup JSON salvo anteriormente"
-              className="inline-flex items-center gap-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-2 py-1 text-[11px] font-medium text-slate-200 transition cursor-pointer"
-            >
-              <Upload className="w-3.5 h-3.5 text-purple-400" />
-              <span className="hidden lg:inline">Importar</span>
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/json"
-              onChange={onImportBackup}
-              className="hidden"
-            />
+            {/* Menu Compacto de Backup (Exportar / Importar JSON) */}
+            <div ref={backupMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setIsBackupMenuOpen((prev) => !prev)}
+                title="Backup de dados (Exportar ou Importar JSON)"
+                className="inline-flex items-center gap-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-2 py-1 text-[11px] font-medium text-slate-200 transition cursor-pointer"
+              >
+                <Database className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden lg:inline">Backup</span>
+              </button>
+
+              {isBackupMenuOpen && (
+                <div className="absolute right-0 mt-1.5 w-48 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl py-1.5 z-50 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsBackupMenuOpen(false);
+                      onExportBackup();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-slate-200 hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    <span>Exportar Backup (.json)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsBackupMenuOpen(false);
+                      fileInputRef.current?.click();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-slate-200 hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                    <span>Importar Backup (.json)</span>
+                  </button>
+                </div>
+              )}
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/json"
+                onChange={onImportBackup}
+                className="hidden"
+              />
+            </div>
 
             <div className="flex items-center gap-1.5 pl-1.5 border-l border-slate-800">
               <span className="hidden 2xl:inline text-xs text-slate-400 max-w-[110px] truncate">

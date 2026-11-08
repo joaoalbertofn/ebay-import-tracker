@@ -90,11 +90,21 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
   onSwitchToListView,
   renderSelectedPackageDetail,
 }) => {
+  const hasActiveShipments = useMemo(
+    () => shipments.some((s) => s.status !== 'entregue'),
+    [shipments]
+  );
+
   const [mapStatusFilter, setMapStatusFilter] = useState<
     ShipmentStatus | 'ALL' | 'ACTIVE_ONLY'
-  >('ALL');
+  >(() =>
+    shipments.some((s) => s.status !== 'entregue') ? 'ACTIVE_ONLY' : 'ALL'
+  );
   const [mapForwarderFilter, setMapForwarderFilter] = useState<string>('ALL');
   const [hoveredShipmentId, setHoveredShipmentId] = useState<string | null>(
+    null
+  );
+  const [focusedShipmentId, setFocusedShipmentId] = useState<string | null>(
     null
   );
   const [modalShipmentId, setModalShipmentId] = useState<string | null>(null);
@@ -201,151 +211,80 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
     return clusters;
   }, [visibleShipments, summariesMap]);
 
-  // Pacote cuja rota está ativa no mapa (apenas quando sob o mouse ou aberto no modal, conforme definido para manter o mapa limpo)
+  // Pacote cuja rota está ativa no mapa (quando sob o mouse, focado no touch ou aberto no modal)
   const highlightedRouteNode = useMemo<StackedCardNode | null>(() => {
-    const targetId = hoveredShipmentId || modalShipmentId;
+    const targetId = hoveredShipmentId || focusedShipmentId || modalShipmentId;
     if (!targetId) return null;
     for (const cluster of stackClusters) {
       const found = cluster.cards.find((c) => c.shipment.id === targetId);
       if (found) return found;
     }
     return null;
-  }, [hoveredShipmentId, modalShipmentId, stackClusters]);
+  }, [hoveredShipmentId, focusedShipmentId, modalShipmentId, stackClusters]);
 
-  // Estatísticas rápidas por etapa geográfica
-  const stageStats = useMemo(() => {
-    let inOrigin = 0;
-    let inForwarder = 0;
-    let inTransit = 0;
-    let inBrazilCustoms = 0;
-    let delivered = 0;
-
+  // Contagens por status para os filtros unificados de etapa
+  const statusCounts = useMemo(() => {
+    const counts: Record<ShipmentStatus, number> = {
+      comprado: 0,
+      no_redirecionador: 0,
+      consolidado: 0,
+      em_transito: 0,
+      tributado: 0,
+      entregue: 0,
+    };
     for (const s of shipments) {
-      if (s.status === 'comprado') inOrigin++;
-      else if (s.status === 'no_redirecionador' || s.status === 'consolidado')
-        inForwarder++;
-      else if (s.status === 'em_transito') inTransit++;
-      else if (s.status === 'tributado') inBrazilCustoms++;
-      else if (s.status === 'entregue') delivered++;
+      counts[s.status] = (counts[s.status] || 0) + 1;
     }
-
-    return { inOrigin, inForwarder, inTransit, inBrazilCustoms, delivered };
+    return counts;
   }, [shipments]);
 
+  const activeCount = shipments.length - statusCounts.entregue;
+
   const handleClickMiniature = (shipmentId: string) => {
+    const isTouchDevice =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(hover: none)').matches;
+
+    if (isTouchDevice && focusedShipmentId !== shipmentId) {
+      setFocusedShipmentId(shipmentId);
+      onSelectShipmentFromMap(shipmentId);
+      return;
+    }
+
     setHoveredShipmentId(null);
+    setFocusedShipmentId(shipmentId);
     onSelectShipmentFromMap(shipmentId);
     setModalShipmentId(shipmentId);
   };
 
   return (
-    <section className="lg:col-span-12 space-y-4">
-      {/* BARRA DE CONTROLE DO MAPA-MÚNDI */}
+    <section className="lg:col-span-12 space-y-3.5">
+      {/* BARRA DE CONTROLE UNIFICADA DO MAPA-MÚNDI */}
       <div className="rounded-2xl bg-slate-900/75 border border-slate-800/90 p-3.5 sm:p-4 flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Toggle Lista vs Mapa-Múndi */}
-            <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800">
-              <button
-                type="button"
-                onClick={onSwitchToListView}
-                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-white transition cursor-pointer"
-              >
-                <List className="w-3.5 h-3.5" />
-                <span>Lista ({shipments.length})</span>
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white shadow-sm shadow-indigo-500/30 cursor-pointer"
-              >
-                <Globe className="w-3.5 h-3.5" />
-                <span>Mapa-Múndi ({visibleShipments.length})</span>
-              </button>
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center shrink-0">
+              <Globe className="w-4 h-4 text-sky-400" />
             </div>
-
             <div>
               <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                <span>Onde está cada Pacote</span>
-                <span className="text-[11px] font-normal text-slate-400 hidden sm:inline">
-                  • Passe o mouse na pilha para destacar a rota ou clique no pacote para abrir seus detalhes
+                <span>Mapa Global de Rotas & Pacotes</span>
+                <span className="rounded-full bg-slate-800 border border-slate-700 px-2 py-0.5 text-[11px] font-mono text-sky-300">
+                  {visibleShipments.length} no mapa
                 </span>
               </h2>
+              <p className="text-[11px] text-slate-400">
+                Passe o mouse (ou toque) na pilha para destacar a rota aérea e clique no pacote para abrir seus detalhes
+              </p>
             </div>
-          </div>
-
-          {/* Resumo de Pacotes por Etapa da Rota */}
-          <div className="flex flex-wrap items-center gap-2 text-[11px]">
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-purple-500/10 border border-purple-500/30 px-2.5 py-1 text-purple-300">
-              <span className="w-2 h-2 rounded-full bg-purple-400" />
-              Origem/Vendedor: <strong>{stageStats.inOrigin}</strong>
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 text-amber-300">
-              <span className="w-2 h-2 rounded-full bg-amber-400" />
-              Redirecionador: <strong>{stageStats.inForwarder}</strong>
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-sky-500/10 border border-sky-500/30 px-2.5 py-1 text-sky-300">
-              <Plane className="w-3 h-3 text-sky-400" />
-              Oceano/Trânsito: <strong>{stageStats.inTransit}</strong>
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 px-2.5 py-1 text-rose-300">
-              <span className="w-2 h-2 rounded-full bg-rose-400" />
-              Curitiba/Receita: <strong>{stageStats.inBrazilCustoms}</strong>
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 text-emerald-300">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              Entregues (MG): <strong>{stageStats.delivered}</strong>
-            </span>
-          </div>
-        </div>
-
-        {/* Filtros Rápidos do Mapa (Status + Redirecionador) */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
-            <button
-              type="button"
-              onClick={() => setMapStatusFilter('ALL')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer shrink-0 ${
-                mapStatusFilter === 'ALL'
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
-              }`}
-            >
-              Todos ({shipments.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setMapStatusFilter('ACTIVE_ONLY')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer shrink-0 ${
-                mapStatusFilter === 'ACTIVE_ONLY'
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
-              }`}
-            >
-              Em Andamento ({shipments.length - stageStats.delivered})
-            </button>
-            {(Object.keys(STATUS_LABELS) as ShipmentStatus[]).map((st) => (
-              <button
-                key={st}
-                type="button"
-                onClick={() => setMapStatusFilter(st)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer shrink-0 flex items-center gap-1.5 ${
-                  mapStatusFilter === st
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
-                }`}
-              >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${STATUS_LABELS[st].dotClass}`}
-                />
-                {STATUS_LABELS[st].shortLabel}
-              </button>
-            ))}
           </div>
 
           {/* Filtro por Redirecionador */}
           <div className="flex items-center gap-1.5">
             <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <span className="text-[11px] text-slate-400">Redirecionador:</span>
+            <span className="text-[11px] text-slate-400 hidden sm:inline">
+              Redirecionador:
+            </span>
             <select
               value={mapForwarderFilter}
               onChange={(e) => setMapForwarderFilter(e.target.value)}
@@ -360,6 +299,71 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
               <option value="NONE">Sem Redirecionador (No Vendedor)</option>
             </select>
           </div>
+        </div>
+
+        {/* Barra Única Fundida: Pílulas de Etapa Geográfica + Filtro Clicável com Contadores */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pt-2 border-t border-slate-800/80 pb-0.5 no-scrollbar">
+          {hasActiveShipments && (
+            <button
+              type="button"
+              onClick={() => setMapStatusFilter('ACTIVE_ONLY')}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer shrink-0 flex items-center gap-1.5 border ${
+                mapStatusFilter === 'ACTIVE_ONLY'
+                  ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm'
+                  : 'bg-slate-950 text-slate-300 hover:text-white border-slate-800'
+              }`}
+            >
+              <Plane className="w-3 h-3 text-sky-300" />
+              <span>Em Andamento ({activeCount})</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setMapStatusFilter('ALL')}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer shrink-0 border ${
+              mapStatusFilter === 'ALL'
+                ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm'
+                : 'bg-slate-950 text-slate-400 hover:text-slate-200 border-slate-800'
+            }`}
+          >
+            Todos ({shipments.length})
+          </button>
+
+          <div className="h-4 w-px bg-slate-800 shrink-0 mx-0.5" />
+
+          {(Object.keys(STATUS_LABELS) as ShipmentStatus[]).map((st) => {
+            const count = statusCounts[st] || 0;
+            const isSelected = mapStatusFilter === st;
+            return (
+              <button
+                key={st}
+                type="button"
+                onClick={() => setMapStatusFilter(st)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer shrink-0 flex items-center gap-1.5 border ${
+                  isSelected
+                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-sm'
+                    : count > 0
+                    ? 'bg-slate-950 text-slate-300 hover:text-white border-slate-800'
+                    : 'bg-slate-950/50 text-slate-500 border-slate-800/50 opacity-60'
+                }`}
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${STATUS_LABELS[st].dotClass}`}
+                />
+                <span>{STATUS_LABELS[st].shortLabel}</span>
+                <span
+                  className={`font-mono text-[10px] px-1 rounded ${
+                    isSelected
+                      ? 'bg-indigo-900/80 text-indigo-100'
+                      : 'bg-slate-900 text-slate-400'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -673,11 +677,13 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
                       }) => {
                         const leftPercent = (cardX / 1000) * 100;
                         const topPercent = (cardY / 560) * 100;
-                        const isHovered = hoveredShipmentId === shipment.id;
+                        const isHovered =
+                          hoveredShipmentId === shipment.id ||
+                          focusedShipmentId === shipment.id;
                         const isModalOpen = modalShipmentId === shipment.id;
 
                         // Z-index em cascata: index 0 tem maior z-index natural para que as cartas seguintes fiquem logo atrás mostrando a base (igual na imagem 3 do Brasil).
-                        // Quando o usuário passa o mouse em qualquer carta de trás, ela recebe zIndex 50 e sobe para o topo!
+                        // Quando o usuário passa o mouse ou toca em qualquer carta de trás, ela recebe zIndex 50 e sobe para o topo!
                         const baseZIndex = 30 - stackIndex;
                         const effectiveZIndex = isHovered
                           ? 50
@@ -815,7 +821,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
               })}
             </div>
 
-            {/* BARRA INFERIOR DE STATUS DA ROTA QUANDO UM PACOTE ESTÁ SOB O MOUSE */}
+            {/* BARRA INFERIOR DE STATUS DA ROTA QUANDO UM PACOTE ESTÁ SOB O MOUSE OU FOCADO */}
             {highlightedRouteNode && (() => {
               const { shipment, route } = highlightedRouteNode;
               return (
@@ -857,6 +863,17 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
                         );
                       })}
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectShipmentFromMap(shipment.id);
+                        setModalShipmentId(shipment.id);
+                      }}
+                      className="rounded-lg bg-indigo-600 hover:bg-indigo-500 px-2.5 py-1 text-[11px] font-semibold text-white transition cursor-pointer shrink-0"
+                    >
+                      Abrir Detalhes
+                    </button>
                   </div>
                 </div>
               );

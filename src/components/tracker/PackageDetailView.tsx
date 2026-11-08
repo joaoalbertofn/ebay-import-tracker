@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Plus,
@@ -30,6 +30,7 @@ import {
   Layers,
   FileText,
   Building2,
+  MoreHorizontal,
 } from 'lucide-react';
 import {
   Shipment,
@@ -57,6 +58,7 @@ import {
 interface PackageDetailViewProps {
   mobileActivePane: 'list' | 'detail';
   onBackToList: () => void;
+  isEmbeddedInModal?: boolean;
   filteredShipmentsCount: number;
   selectedSummary: ShipmentSummary | null;
   searchQuery: string;
@@ -89,6 +91,7 @@ interface PackageDetailViewProps {
 export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
   mobileActivePane,
   onBackToList,
+  isEmbeddedInModal = false,
   filteredShipmentsCount,
   selectedSummary,
   searchQuery,
@@ -125,12 +128,34 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
   const [isEditingWeight, setIsEditingWeight] = useState(false);
   const [weightDraft, setWeightDraft] = useState('');
 
+  // Estados para edição inline do código de rastreamento para o Brasil
+  const [isEditingTracking, setIsEditingTracking] = useState(false);
+  const [trackingDraft, setTrackingDraft] = useState('');
+
+  // Menu dropdown de ações secundárias do pacote (⋯)
+  const [isMoreActionsOpen, setIsMoreActionsOpen] = useState(false);
+  const moreActionsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isMoreActionsOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        moreActionsRef.current &&
+        !moreActionsRef.current.contains(e.target as Node)
+      ) {
+        setIsMoreActionsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isMoreActionsOpen]);
+
   // Estados para edição rápida inline de CDs (artista / álbum)
   const [inlineEditingId, setInlineEditingId] = useState<string | null>(null);
   const [inlineArtist, setInlineArtist] = useState('');
   const [inlineAlbum, setInlineAlbum] = useState('');
 
-  // Pacotes em trânsito, tributados ou entregues já foram fechados e não podem ter CDs alterados/adicionados
+  // Pacotes em trânsito, tributados ou entregues já foram fechados para adição/remoção de itens, mas permitem editar capa/nome de álbuns
   const isLockedPackage =
     selectedSummary?.shipment.status === 'em_transito' ||
     selectedSummary?.shipment.status === 'tributado' ||
@@ -153,6 +178,13 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
     );
   };
 
+  const handleCommitTracking = (shipmentId: string) => {
+    const clean = trackingDraft.trim().toUpperCase();
+    setIsEditingTracking(false);
+    if (!clean || !onSaveTrackingCode) return;
+    onSaveTrackingCode(shipmentId, clean);
+  };
+
   const handleCommitInlineCD = (item: CDItem) => {
     const newArtist = inlineArtist.trim() || item.artist;
     const newAlbum = inlineAlbum.trim() || item.albumTitle;
@@ -164,28 +196,32 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
     <section
       className={`${
         mobileActivePane === 'list' ? 'hidden lg:block' : 'block'
-      } lg:col-span-8 xl:col-span-8 space-y-5`}
+      } ${
+        isEmbeddedInModal ? 'w-full' : 'lg:col-span-8 xl:col-span-8'
+      } space-y-5`}
     >
       {/* Barra de Navegação Mobile Nativa (← Voltar para a Lista de Pacotes) */}
-      <div className="flex items-center justify-between gap-2 lg:hidden">
-        <button
-          type="button"
-          onClick={onBackToList}
-          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:text-white active:scale-95 transition"
-        >
-          <ArrowLeft className="w-4 h-4 text-indigo-400" />
-          Voltar para Pacotes ({filteredShipmentsCount})
-        </button>
+      {!isEmbeddedInModal && (
+        <div className="flex items-center justify-between gap-2 lg:hidden">
+          <button
+            type="button"
+            onClick={onBackToList}
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:text-white active:scale-95 transition"
+          >
+            <ArrowLeft className="w-4 h-4 text-indigo-400" />
+            Voltar para Pacotes ({filteredShipmentsCount})
+          </button>
 
-        <button
-          type="button"
-          onClick={onOpenNewShipmentModal}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-semibold text-white"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Novo Pacote
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={onOpenNewShipmentModal}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-semibold text-white"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Novo Pacote
+          </button>
+        </div>
+      )}
 
       {!selectedSummary ? (
         <div className="rounded-2xl bg-slate-900/50 border border-slate-800 p-10 text-center space-y-4">
@@ -284,12 +320,24 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
 
                   <select
                     value={selectedSummary.shipment.status}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const nextStatus = e.target.value as ShipmentStatus;
+                      if (
+                        nextStatus === 'em_transito' &&
+                        !selectedSummary.shipment.internationalTrackingCode?.trim()
+                      ) {
+                        setTrackingDraft('');
+                        setIsEditingTracking(true);
+                        showToast(
+                          'Informe o código de rastreamento Brasil abaixo para colocar Em Trânsito.'
+                        );
+                        return;
+                      }
                       onQuickStatusChange(
                         selectedSummary.shipment.id,
-                        e.target.value as ShipmentStatus
-                      )
-                    }
+                        nextStatus
+                      );
+                    }}
                     className={`rounded-full border px-2.5 py-1 text-xs font-semibold cursor-pointer focus:outline-none shrink-0 ${
                       STATUS_LABELS[selectedSummary.shipment.status].badgeClass
                     }`}
@@ -418,80 +466,94 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                   )}
                 </div>
 
-                {/* Ações do Pacote */}
+                {/* Ações do Pacote: Botão Primário + Menu de Mais Ações (⋯) */}
                 <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                  {!isLockedPackage &&
-                    (selectedSummary.shipment.status !== 'comprado' ||
-                      selectedSummary.shipment.consolidationMode ===
-                        'group_only' ||
-                      selectedSummary.shipment.consolidationMode ===
-                        'unpack_and_repack' ||
-                      selectedSummary.items.some(
-                        (cd) => cd.isConsolidated
-                      )) && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onRevertPackageToSingle(selectedSummary.shipment)
-                        }
-                        title="Desfaz o status de consolidado deste pacote para que seus CDs fiquem disponíveis novamente para consolidação"
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-600/80 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition whitespace-nowrap"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5 text-sky-400" />
-                        <span>Voltar p/ Único</span>
-                      </button>
-                    )}
-
-                  <button
-                    onClick={() => onApplyMgTaxEstimate(selectedSummary)}
-                    title={`Calcula (Soma dos CDs) * Câmbio * ${MG_TAX_FACTOR} (apenas sobre o valor dos produtos)`}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 px-2.5 py-1.5 text-xs font-semibold text-amber-300 transition whitespace-nowrap"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                    <span>
-                      Estimar MG ({formatBrl(selectedSummary.estimatedTaxMgBrl)})
-                    </span>
-                  </button>
-
-                  {(selectedSummary.shipment.status === 'tributado' ||
-                    selectedSummary.shipment.status === 'entregue') &&
-                    onOpenReportModal && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onOpenReportModal(selectedSummary.shipment.id)
-                        }
-                        title="Ver relatório detalhado de custos e impressão/PDF deste pacote"
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 px-2.5 py-1.5 text-xs font-semibold text-indigo-300 transition whitespace-nowrap cursor-pointer"
-                      >
-                        <FileText className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>Relatório</span>
-                      </button>
-                    )}
-
                   <button
                     onClick={() => onEditShipment(selectedSummary.shipment)}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition whitespace-nowrap"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 px-3 py-1.5 text-xs font-semibold text-indigo-200 transition whitespace-nowrap cursor-pointer"
                   >
                     <Edit3 className="w-3.5 h-3.5 text-indigo-400" />
                     <span>Editar Pacote</span>
                   </button>
 
-                  <button
-                    onClick={() => onDuplicateShipment(selectedSummary.shipment)}
-                    title="Criar uma cópia deste pacote com todas as taxas e CDs"
-                    className="inline-flex items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 p-1.5 text-slate-300 hover:text-white transition"
-                  >
-                    <Copy className="w-4 h-4 text-sky-400" />
-                  </button>
+                  <div ref={moreActionsRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsMoreActionsOpen((prev) => !prev)}
+                      title="Mais ações do pacote"
+                      className="inline-flex items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 p-1.5 text-slate-300 hover:text-white transition cursor-pointer"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
 
-                  <button
-                    onClick={() => onDeleteShipment(selectedSummary.shipment)}
-                    title="Excluir pacote"
-                    className="inline-flex items-center justify-center rounded-xl bg-rose-950/40 hover:bg-rose-900/50 border border-rose-800/50 p-1.5 text-rose-300 transition"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                    {isMoreActionsOpen && (
+                      <div className="absolute right-0 mt-1.5 w-52 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl py-1.5 z-50 text-xs">
+                        {(selectedSummary.shipment.status === 'tributado' ||
+                          selectedSummary.shipment.status === 'entregue') &&
+                          onOpenReportModal && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsMoreActionsOpen(false);
+                                onOpenReportModal(selectedSummary.shipment.id);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-indigo-300 hover:bg-slate-800 transition cursor-pointer"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                              <span>Relatório do Pacote (PDF)</span>
+                            </button>
+                          )}
+
+                        {!isLockedPackage &&
+                          (selectedSummary.shipment.status !== 'comprado' ||
+                            selectedSummary.shipment.consolidationMode ===
+                              'group_only' ||
+                            selectedSummary.shipment.consolidationMode ===
+                              'unpack_and_repack' ||
+                            selectedSummary.items.some(
+                              (cd) => cd.isConsolidated
+                            )) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsMoreActionsOpen(false);
+                                onRevertPackageToSingle(selectedSummary.shipment);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-slate-200 hover:bg-slate-800 transition cursor-pointer"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                              <span>Voltar p/ Pacote Único</span>
+                            </button>
+                          )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMoreActionsOpen(false);
+                            onDuplicateShipment(selectedSummary.shipment);
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-left text-slate-200 hover:bg-slate-800 transition cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                          <span>Duplicar Pacote</span>
+                        </button>
+
+                        <div className="my-1 border-t border-slate-800" />
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMoreActionsOpen(false);
+                            onDeleteShipment(selectedSummary.shipment);
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-left text-rose-300 hover:bg-rose-950/40 transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          <span>Excluir Pacote</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -626,7 +688,44 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                   </button>
                 )}
 
-                {selectedSummary.shipment.internationalTrackingCode ? (
+                {isEditingTracking ? (
+                  <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                    <Truck className="w-3.5 h-3.5 text-sky-400" />
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="LT497056434GB"
+                      value={trackingDraft}
+                      onChange={(e) => setTrackingDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleCommitTracking(selectedSummary.shipment.id);
+                        } else if (e.key === 'Escape') {
+                          setIsEditingTracking(false);
+                        }
+                      }}
+                      className="w-36 rounded bg-slate-950 border border-sky-500 px-2 py-0.5 text-xs font-mono uppercase text-white focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleCommitTracking(selectedSummary.shipment.id)
+                      }
+                      className="p-1 rounded bg-sky-600 text-white hover:bg-sky-500 cursor-pointer"
+                      title="Salvar código de rastreamento"
+                    >
+                      <Check className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingTracking(false)}
+                      className="p-1 rounded bg-slate-800 text-slate-300 hover:text-white cursor-pointer"
+                      title="Cancelar"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ) : selectedSummary.shipment.internationalTrackingCode ? (
                   <div className="flex items-center gap-1">
                     <a
                       href={`https://portalimportador.correios.com.br/pages/pesquisarRemessaImportador/pesquisarRemessaImportador.jsf#track=${encodeURIComponent(
@@ -659,18 +758,11 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          const currentCode =
-                            selectedSummary.shipment.internationalTrackingCode || '';
-                          const newCode = window.prompt(
-                            'Editar código de rastreamento para o Brasil:',
-                            currentCode
+                          setTrackingDraft(
+                            selectedSummary.shipment.internationalTrackingCode ||
+                              ''
                           );
-                          if (newCode !== null && newCode.trim()) {
-                            onSaveTrackingCode(
-                              selectedSummary.shipment.id,
-                              newCode
-                            );
-                          }
+                          setIsEditingTracking(true);
                         }}
                         className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
                         title="Editar código de rastreamento"
@@ -684,21 +776,14 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        const code = window.prompt(
-                          'Informe o código de rastreamento para o Brasil (ex: LT497056434GB):'
-                        );
-                        if (code && code.trim()) {
-                          onSaveTrackingCode(
-                            selectedSummary.shipment.id,
-                            code
-                          );
-                        }
+                        setTrackingDraft('');
+                        setIsEditingTracking(true);
                       }}
                       className="inline-flex items-center gap-1 rounded-md bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 px-2 py-0.5 font-mono text-[11px] text-sky-300 transition whitespace-nowrap cursor-pointer"
                       title="Adicionar código de rastreio para o Brasil e colocar Em Trânsito"
                     >
                       <Truck className="w-3 h-3 text-sky-400" />
-                      <span>+ Adicionar Rastreio Brasil</span>
+                      <span>+ Rastreio Brasil</span>
                     </button>
                   )
                 )}
@@ -882,14 +967,29 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                     <span className="text-slate-400 font-sans">
                       Imposto Brasil:
                     </span>
-                    <span className="text-amber-300 font-semibold">
-                      {formatBrl(selectedSummary.shipment.customsTaxBrl)}
-                      {selectedSummary.shipment.isTaxEstimated && (
-                        <span className="text-[9px] text-amber-400/80 ml-1">
-                          (Est.)
-                        </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-amber-300 font-semibold">
+                        {formatBrl(selectedSummary.shipment.customsTaxBrl)}
+                        {selectedSummary.shipment.isTaxEstimated && (
+                          <span className="text-[9px] text-amber-400/80 ml-1">
+                            (Est.)
+                          </span>
+                        )}
+                      </span>
+                      {selectedSummary.shipment.status !== 'entregue' && (
+                        <button
+                          type="button"
+                          onClick={() => onApplyMgTaxEstimate(selectedSummary)}
+                          title={`Estimar Imposto MG (${MG_TAX_FACTOR}): ${formatBrl(
+                            selectedSummary.estimatedTaxMgBrl
+                          )}`}
+                          className="inline-flex items-center gap-0.5 rounded bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 px-1.5 py-0.5 text-[9.5px] font-sans font-semibold text-amber-300 transition cursor-pointer"
+                        >
+                          <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                          <span>Estimar MG</span>
+                        </button>
                       )}
-                    </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1023,19 +1123,17 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                   )
                 </h3>
                 <p className="text-xs text-slate-400">
-                  {isLockedPackage
-                    ? 'Pacote finalizado. Visualização e rateios dos itens fixados.'
-                    : 'Toque no título de qualquer álbum para renomear ou na capa para escolher outra arte.'}
+                  Toque no título de qualquer álbum para renomear ou na capa para escolher outra arte.
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 shrink-0">
-                {!isLockedPackage && selectedSummary.items.length > 0 && (
+                {selectedSummary.items.length > 0 && (
                   <button
                     onClick={onFetchAllCovers}
                     disabled={isFetchingCoversBatch}
                     title="Busca automaticamente na internet a capa de todos os CDs sem capa"
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 px-2.5 py-2 text-xs font-medium text-indigo-300 transition disabled:opacity-50 whitespace-nowrap"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 px-2.5 py-2 text-xs font-medium text-indigo-300 transition disabled:opacity-50 whitespace-nowrap cursor-pointer"
                   >
                     {isFetchingCoversBatch ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1130,28 +1228,18 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                         className="rounded-xl bg-slate-950/75 border border-slate-800/90 p-3 space-y-2.5"
                       >
                         <div className="flex items-start gap-3">
-                          {/* Capa */}
-                          {!isLockedPackage ? (
-                            <button
-                              type="button"
-                              onClick={() => onEditCD(item)}
-                              className="relative h-14 w-14 rounded-xl bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0 shadow"
-                            >
-                              <AlbumCover
-                                src={item.coverUrl}
-                                alt={item.albumTitle}
-                                iconClassName="w-6 h-6 text-slate-600"
-                              />
-                            </button>
-                          ) : (
-                            <div className="relative h-14 w-14 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center overflow-hidden shrink-0 shadow">
-                              <AlbumCover
-                                src={item.coverUrl}
-                                alt={item.albumTitle}
-                                iconClassName="w-6 h-6 text-slate-600"
-                              />
-                            </div>
-                          )}
+                          {/* Capa (sempre clicável para permitir trocar ou buscar a capa do álbum) */}
+                          <button
+                            type="button"
+                            onClick={() => onEditCD(item)}
+                            className="relative h-14 w-14 rounded-xl bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0 shadow cursor-pointer"
+                          >
+                            <AlbumCover
+                              src={item.coverUrl}
+                              alt={item.albumTitle}
+                              iconClassName="w-6 h-6 text-slate-600"
+                            />
+                          </button>
 
                           {/* Artista, Álbum e Badges */}
                           <div className="flex-1 min-w-0">
@@ -1205,33 +1293,25 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                                 </div>
 
                                 <div
-                                  onClick={
-                                    !isLockedPackage
-                                      ? () => {
-                                          setInlineEditingId(item.id);
-                                          setInlineArtist(item.artist);
-                                          setInlineAlbum(
-                                            item.albumTitle.startsWith('CD #')
-                                              ? ''
-                                              : item.albumTitle
-                                          );
-                                        }
-                                      : undefined
-                                  }
-                                  className={`text-xs text-slate-300 mt-0.5 flex items-center gap-1.5 ${
-                                    !isLockedPackage ? 'cursor-pointer' : ''
-                                  }`}
+                                  onClick={() => {
+                                    setInlineEditingId(item.id);
+                                    setInlineArtist(item.artist);
+                                    setInlineAlbum(
+                                      item.albumTitle.startsWith('CD #')
+                                        ? ''
+                                        : item.albumTitle
+                                    );
+                                  }}
+                                  className="text-xs text-slate-300 mt-0.5 flex items-center gap-1.5 cursor-pointer"
                                 >
                                   <span className="truncate">
                                     {item.albumTitle}
                                   </span>
-                                  {!isLockedPackage && (
-                                    <Edit3 className="w-3 h-3 text-indigo-400 shrink-0" />
-                                  )}
+                                  <Edit3 className="w-3 h-3 text-indigo-400 shrink-0" />
                                 </div>
 
                                 <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                                  {item.isBundle ? (
+                                  {item.isBundle && (
                                     <span
                                       className="inline-flex items-center gap-1 rounded bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.5 text-[10px] text-purple-300 whitespace-nowrap"
                                       title={item.bundleName || 'Lote'}
@@ -1241,10 +1321,6 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                                         item,
                                         selectedSummary.shipment.name
                                       )}
-                                    </span>
-                                  ) : (
-                                    <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400 whitespace-nowrap">
-                                      Avulso
                                     </span>
                                   )}
 
@@ -1396,28 +1472,18 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                             {/* Coluna 1: Capa + Artista, Álbum e Tags de Origem/Embalagem */}
                             <td className="py-3 px-4 w-full max-w-0">
                               <div className="flex items-center gap-3">
-                                {!isLockedPackage ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => onEditCD(item)}
-                                    title="Clique para trocar ou buscar a capa deste álbum"
-                                    className="group relative h-12 w-12 rounded-lg bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0 shadow hover:border-indigo-400 transition"
-                                  >
-                                    <AlbumCover
-                                      src={item.coverUrl}
-                                      alt={item.albumTitle}
-                                      iconClassName="w-5 h-5 text-slate-600 group-hover:text-indigo-400 transition"
-                                    />
-                                  </button>
-                                ) : (
-                                  <div className="relative h-12 w-12 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center overflow-hidden shrink-0 shadow">
-                                    <AlbumCover
-                                      src={item.coverUrl}
-                                      alt={item.albumTitle}
-                                      iconClassName="w-5 h-5 text-slate-600"
-                                    />
-                                  </div>
-                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => onEditCD(item)}
+                                  title="Clique para trocar ou buscar a capa deste álbum"
+                                  className="group relative h-12 w-12 rounded-lg bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0 shadow hover:border-indigo-400 transition cursor-pointer"
+                                >
+                                  <AlbumCover
+                                    src={item.coverUrl}
+                                    alt={item.albumTitle}
+                                    iconClassName="w-5 h-5 text-slate-600 group-hover:text-indigo-400 transition"
+                                  />
+                                </button>
 
                                 <div className="min-w-0 flex-1">
                                   {isInlineEditing ? (
@@ -1472,7 +1538,7 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                                           </span>
                                         )}
 
-                                        {item.isBundle ? (
+                                        {item.isBundle && (
                                           <span
                                             className="inline-flex items-center gap-1 rounded bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.5 text-[10px] font-medium text-purple-300 whitespace-nowrap"
                                             title={`Lote: ${formatOriginalCurrency(
@@ -1491,10 +1557,6 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                                               item,
                                               selectedSummary.shipment.name
                                             )}
-                                          </span>
-                                        ) : (
-                                          <span className="inline-flex items-center rounded bg-slate-800/80 px-1.5 py-0.5 text-[10px] text-slate-400 whitespace-nowrap">
-                                            Avulso
                                           </span>
                                         )}
 
@@ -1556,33 +1618,20 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                                       </div>
 
                                       <div
-                                        onClick={
-                                          !isLockedPackage
-                                            ? () => {
-                                                setInlineEditingId(item.id);
-                                                setInlineArtist(item.artist);
-                                                setInlineAlbum(
-                                                  item.albumTitle.startsWith('CD #')
-                                                    ? ''
-                                                    : item.albumTitle
-                                                );
-                                              }
-                                            : undefined
-                                        }
-                                        title={
-                                          !isLockedPackage
-                                            ? 'Clique para renomear o álbum e buscar a capa'
-                                            : undefined
-                                        }
-                                        className={`text-xs text-slate-300 flex items-center gap-1.5 mt-0.5 group/title ${
-                                          !isLockedPackage
-                                            ? 'hover:text-indigo-300 cursor-pointer'
-                                            : ''
-                                        }`}
+                                        onClick={() => {
+                                          setInlineEditingId(item.id);
+                                          setInlineArtist(item.artist);
+                                          setInlineAlbum(
+                                            item.albumTitle.startsWith('CD #')
+                                              ? ''
+                                              : item.albumTitle
+                                          );
+                                        }}
+                                        title="Clique para renomear o álbum e buscar a capa"
+                                        className="text-xs text-slate-300 flex items-center gap-1.5 mt-0.5 group/title hover:text-indigo-300 cursor-pointer"
                                       >
                                         <span
                                           className={`truncate ${
-                                            !isLockedPackage &&
                                             item.albumTitle.startsWith('CD #')
                                               ? 'underline decoration-dashed decoration-indigo-400/60 text-indigo-200'
                                               : ''
@@ -1590,9 +1639,7 @@ export const PackageDetailView: React.FC<PackageDetailViewProps> = ({
                                         >
                                           {item.albumTitle}
                                         </span>
-                                        {!isLockedPackage && (
-                                          <Edit3 className="w-3 h-3 opacity-0 group-hover/title:opacity-100 text-indigo-400 transition shrink-0" />
-                                        )}
+                                        <Edit3 className="w-3 h-3 opacity-0 group-hover/title:opacity-100 text-indigo-400 transition shrink-0" />
                                       </div>
                                     </div>
                                   )}

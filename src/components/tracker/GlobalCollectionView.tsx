@@ -23,6 +23,9 @@ export interface CollectionEntry {
 interface GlobalCollectionViewProps {
   entries: CollectionEntry[];
   totalCollectionCount: number;
+  totalInvestedBrl?: number;
+  totalPhysicalDiscs?: number;
+  avgPerItemBrl?: number;
   searchQuery: string;
   onSearchChange: (val: string) => void;
   statusFilter: ShipmentStatus | 'ALL';
@@ -37,6 +40,9 @@ interface GlobalCollectionViewProps {
 export function GlobalCollectionView({
   entries,
   totalCollectionCount,
+  totalInvestedBrl = 0,
+  totalPhysicalDiscs = 0,
+  avgPerItemBrl = 0,
   searchQuery,
   onSearchChange,
   statusFilter,
@@ -60,6 +66,39 @@ export function GlobalCollectionView({
 
   return (
     <main className="flex-1 max-w-[1600px] w-full mx-auto px-3.5 sm:px-6 py-4 sm:py-6 space-y-4">
+      {/* Faixa de KPIs Globais da Coleção para telas menores (< xl), onde o resumo do Header fica oculto */}
+      {totalInvestedBrl > 0 && (
+        <div className="xl:hidden grid grid-cols-3 gap-2.5">
+          <div className="rounded-xl bg-slate-900/75 border border-slate-800 p-3">
+            <span className="text-[10px] uppercase tracking-wider text-slate-400 block">
+              Investido Total
+            </span>
+            <span className="font-mono font-bold text-sm sm:text-base text-white">
+              {formatBrl(totalInvestedBrl)}
+            </span>
+          </div>
+          <div className="rounded-xl bg-slate-900/75 border border-slate-800 p-3">
+            <span className="text-[10px] uppercase tracking-wider text-slate-400 block">
+              Total Álbuns
+            </span>
+            <span className="font-mono font-bold text-sm sm:text-base text-indigo-300">
+              {totalCollectionCount}{' '}
+              <span className="text-[10px] font-normal text-slate-400">
+                ({totalPhysicalDiscs} discos)
+              </span>
+            </span>
+          </div>
+          <div className="rounded-xl bg-slate-900/75 border border-slate-800 p-3">
+            <span className="text-[10px] uppercase tracking-wider text-slate-400 block">
+              Média / Item
+            </span>
+            <span className="font-mono font-bold text-sm sm:text-base text-emerald-400">
+              {formatBrl(avgPerItemBrl)}
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-2xl bg-slate-900/60 border border-slate-800/90 p-4 sm:p-5 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>

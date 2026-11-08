@@ -203,6 +203,7 @@ export function ShipmentModal({
     parseEbay,
   } = useEbayQuickPaste();
   const [notes, setNotes] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   // Campos para lançar/editar CDs direto no modal do pacote
   const [bundleTotalValue, setBundleTotalValue] = useState<string>('');
@@ -276,6 +277,7 @@ export function ShipmentModal({
     setIsForwarderExpandedManual(false);
     setEbayQuickPasteInput('');
     setEbayImportFeedback(null);
+    setValidationError(null);
 
     if (editingShipment) {
       setName(editingShipment.name);
@@ -1120,17 +1122,21 @@ export function ShipmentModal({
       (selectedExistingCdIds.size > 0 || effectiveStatus === 'consolidado') &&
       !effectiveForwarderId
     ) {
-      alert(
-        'Selecione o Redirecionador do pacote antes de consolidar (ex: ForwardVia, Send2Hub ou UsCloser).'
+      setValidationError(
+        'Selecione o Redirecionador (Hub) do pacote antes de consolidar (ex: ForwardVia, Send2Hub ou UsCloser).'
       );
       return;
     }
 
     // Regra: O status "Em Trânsito" só pode ser selecionado se houver código de rastreamento para o Brasil
     if (effectiveStatus === 'em_transito' && cleanTrackingCode.length === 0) {
-      alert('Para mudar o status para "Em Trânsito", adicione o código de rastreamento para o Brasil.');
+      setValidationError(
+        'Para mudar o status para "Em Trânsito", preencha o Código de Rastreio Internacional (BR).'
+      );
       return;
     }
+
+    setValidationError(null);
 
     onSave(
       {
@@ -1641,27 +1647,44 @@ export function ShipmentModal({
           </div>
 
           {/* Footer Sempre Fixo e Visível */}
-          <div className="flex items-center justify-end gap-3 px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-900 border-t border-slate-800 shrink-0">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/25 transition"
-            >
-              {editingShipment
-                ? 'Salvar Alterações'
-                : selectedExistingCdIds.size > 0
-                ? `Criar Pacote (${
-                    selectedExistingCdIds.size +
-                    (hasAnyNewCdFilled ? parsedBundleQty : 0)
-                  } CDs)`
-                : 'Criar Pacote'}
-            </button>
+          <div className="flex flex-col gap-2 px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-900 border-t border-slate-800 shrink-0">
+            {validationError && (
+              <div className="rounded-xl bg-rose-500/15 border border-rose-500/40 px-3.5 py-2 text-xs text-rose-200 flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5">
+                  <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{validationError}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setValidationError(null)}
+                  className="text-rose-300 hover:text-white p-0.5 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/25 transition"
+              >
+                {editingShipment
+                  ? 'Salvar Alterações'
+                  : selectedExistingCdIds.size > 0
+                  ? `Criar Pacote (${
+                      selectedExistingCdIds.size +
+                      (hasAnyNewCdFilled ? parsedBundleQty : 0)
+                    } CDs)`
+                  : 'Criar Pacote'}
+              </button>
+            </div>
           </div>
         </form>
       </div>

@@ -16,8 +16,6 @@ import {
   ChevronRight,
   Sparkles,
   Plane,
-  Globe,
-  List,
   Building2,
 } from 'lucide-react';
 import { Shipment, ShipmentStatus, ShipmentSummary } from '@/types/tracker';
@@ -83,53 +81,18 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center gap-2">
-              <Package className="w-4 h-4 text-indigo-400" />
-              Pacotes / Lotes ({filteredShipments.length})
-            </h2>
-
-            {onOpenWorldMapView && (
-              <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-slate-950 border border-slate-800">
-                <span className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold bg-indigo-600 text-white shadow">
-                  <List className="w-3 h-3" />
-                  <span>Lista</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={onOpenWorldMapView}
-                  title="Alternar para o Mapa-Múndi e visualizar onde está cada pacote"
-                  className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold text-slate-400 hover:text-white hover:bg-slate-800/80 transition cursor-pointer"
-                >
-                  <Globe className="w-3 h-3 text-sky-400" />
-                  <span>Mapa</span>
-                </button>
-              </div>
-            )}
-          </div>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+            <Package className="w-4 h-4 text-indigo-400" />
+            Pacotes / Lotes ({filteredShipments.length})
+          </h2>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            {checkedConsolidationStats.packageCount > 0
-              ? `${checkedConsolidationStats.packageCount} ${
-                  checkedConsolidationStats.packageCount === 1
-                    ? 'pacote marcado'
-                    : 'pacotes marcados'
-                } (${checkedConsolidationStats.totalCds} CDs)`
-              : 'Marque 2+ pacotes (com redirecionador) para consolidar'}
+            {eligibleConsolidationCount >= 2
+              ? 'Marque 2+ pacotes nos checkboxes abaixo para consolidar'
+              : 'Selecione um pacote para ver ou editar seus itens'}
           </p>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {checkedConsolidationStats.packageCount > 0 && (
-            <button
-              type="button"
-              onClick={onClearCheckedPackages}
-              title="Limpar seleção de pacotes"
-              className="p-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-white transition"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-
           {eligibleConsolidationCount >= 2 && (
             <button
               type="button"
@@ -143,30 +106,6 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
           )}
 
           <button
-            type="button"
-            onClick={onOpenConsolidateFromChecked}
-            disabled={checkedConsolidationStats.packageCount < 2}
-            title={
-              checkedConsolidationStats.packageCount >= 2
-                ? `Consolidar ${checkedConsolidationStats.packageCount} pacotes selecionados (${checkedConsolidationStats.totalCds} CDs)`
-                : 'Marque pelo menos 2 pacotes disponíveis nos checkboxes abaixo para habilitar a consolidação'
-            }
-            className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition shrink-0 ${
-              checkedConsolidationStats.packageCount >= 2
-                ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/25 cursor-pointer'
-                : 'bg-slate-950 border border-slate-800 text-slate-500 opacity-60 cursor-not-allowed'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>
-              Consolidar
-              {checkedConsolidationStats.packageCount > 0
-                ? ` (${checkedConsolidationStats.packageCount})`
-                : ''}
-            </span>
-          </button>
-
-          <button
             onClick={onOpenNewShipmentModal}
             className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-600/25 transition shrink-0 cursor-pointer"
           >
@@ -175,6 +114,56 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Barra Contextual de Consolidação (Aparece apenas quando há pacotes marcados) */}
+      {checkedConsolidationStats.packageCount > 0 && (
+        <div className="rounded-xl bg-amber-500/10 border border-amber-500/40 p-2.5 flex items-center justify-between gap-2">
+          <div className="text-xs text-amber-200 min-w-0">
+            <strong className="font-bold">
+              {checkedConsolidationStats.packageCount}{' '}
+              {checkedConsolidationStats.packageCount === 1
+                ? 'pacote marcado'
+                : 'pacotes marcados'}
+            </strong>{' '}
+            <span className="text-[11px] text-amber-300/80">
+              ({checkedConsolidationStats.totalCds} CDs)
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={onClearCheckedPackages}
+              title="Limpar seleção"
+              className="px-2 py-1 rounded-lg bg-slate-950/80 hover:bg-slate-900 border border-slate-800 text-[11px] text-slate-300 hover:text-white transition cursor-pointer flex items-center gap-1"
+            >
+              <X className="w-3 h-3" />
+              <span>Limpar</span>
+            </button>
+            <button
+              type="button"
+              onClick={onOpenConsolidateFromChecked}
+              disabled={checkedConsolidationStats.packageCount < 2}
+              title={
+                checkedConsolidationStats.packageCount >= 2
+                  ? `Consolidar ${checkedConsolidationStats.packageCount} pacotes selecionados`
+                  : 'Marque mais 1 pacote disponível para habilitar a consolidação'
+              }
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold transition ${
+                checkedConsolidationStats.packageCount >= 2
+                  ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow cursor-pointer'
+                  : 'bg-slate-900 border border-slate-800 text-slate-500 cursor-not-allowed'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>
+                {checkedConsolidationStats.packageCount >= 2
+                  ? `Consolidar (${checkedConsolidationStats.packageCount})`
+                  : 'Marque +1'}
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Barra de Busca Global e Filtro por Status */}
       <div className="space-y-2.5">
